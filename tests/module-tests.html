@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Anotado - Pruebas de Depuración Modular</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 780px; margin: 24px auto; padding: 0 16px; background: #0f172a; color: #f8fafc; }
+    .pass { color: #34d399; font-weight: 700; }
+    .fail { color: #f87171; font-weight: 700; }
+    .suite { background: #1e293b; border-radius: 12px; padding: 14px 18px; margin-bottom: 14px; }
+    h2 { margin-top: 0; font-size: 1.05rem; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>✓ Anotado — Suite de Pruebas Modulares (Gates 0-4)</h1>
+  <div id="results">Ejecutando pruebas...</div>
+
+  <script type="module">
+    import { setLanguage, t } from '../js/core/i18n.js';
+    import { formatMoney, parseNumericInput } from '../js/core/currency.js';
+    import { applyTheme, getThemeMode } from '../js/core/theme.js';
+    import { createId, putRecord, getById, deleteRecord } from '../js/core/db.js';
+    import { calculateListTotals, formatListForShare } from '../js/modules/market.js';
+
+    const results = [];
+
+    function assert(name, condition) {
+      results.push({ name, ok: Boolean(condition) });
+    }
+
+    async function run() {
+      // Gate 0: i18n
+      setLanguage('es');
+      assert('i18n ES: home.prompt', t('home.prompt') === '¿Qué deseas hacer hoy?');
+      setLanguage('en');
+      assert('i18n EN: home.prompt', t('home.prompt') === 'What would you like to do today?');
+      setLanguage('es');
+
+      // Gate 0: Currency
+      const clp = formatMoney(40000, 'CLP');
+      assert('Currency CLP sin decimales', clp.includes('40.000') && !clp.includes(',00'));
+      const usd = formatMoney(12.5, 'USD');
+      assert('Currency USD con decimales', usd.includes('12.50'));
+      assert('parseNumericInput con coma', parseNumericInput('1,5') === 1.5);
+
+      // Gate 0: Theme
+      applyTheme('dark');
+      assert('Theme dark aplicado', document.documentElement.getAttribute('data-theme') === 'dark' && getThemeMode() === 'dark');
+      applyTheme('light');
+      assert('Theme light aplicado', document.documentElement.getAttribute('data-theme') === 'light' && getThemeMode() === 'light');
+
+      // Gate 0: IndexedDB
+      const testId = createId();
+      await putRecord('notes', { id: testId, title: 'Test Note', content: 'OK', updatedAt: Date.now() });
+      const loaded = await getById('notes', testId);
+      assert('IndexedDB put/get', loaded && loaded.title === 'Test Note');
+      await deleteRecord('notes', testId);
+      const deleted = await getById('notes', testId);
+      assert('IndexedDB delete', deleted === null);
+
+      // Gate 3: Market Calculations & Export
+      const items = [
+        { name: 'Leche', quantity: 2, unitPrice: 1200, inCart: true },
+        { name: 'Café', quantity: 1, unitPrice: 5500, inCart: false }
+      ];
+      const totals = calculateListTotals(items, 7000);
+      assert('Market totalInCart = 2400', totals.totalInCart === 2400);
+      assert('Market totalEstimated = 7900', totals.totalEstimated === 7900);
+      assert('Market budget exceeded = true', totals.isExceeded === true);
+      assert('Market budgetDiff = -900', totals.budgetDiff === -900);
+
+      const shared = formatListForShare({ title: 'Supermercado', currency: 'CLP', budgetLimit: 7000 }, items);
+      assert('Market export text contains items', shared.includes('Leche') && shared.includes('Café'));
+
+      const passed = results.filter((r) => r.ok).length;
+      const root = document.getElementById('results');
+      root.innerHTML = `
+        <div class="suite">
+          <h2>Resultado: ${passed} / ${results.length} pruebas aprobadas</h2>
+          <ul>
+            ${results.map((r) => `<li class="${r.ok ? 'pass' : 'fail'}">${r.ok ? '✓' : '✕'} ${r.name}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    run();
+  </script>
+</body>
+</html>

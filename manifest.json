@@ -1,0 +1,25 @@
+{
+  "name": "Anotado - Notas, Recordatorios y Súper",
+  "short_name": "Anotado",
+  "description": "Aplicación offline para notas rápidas, recordatorios y lista de supermercado con calculadora de precios y presupuesto.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090d16",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
