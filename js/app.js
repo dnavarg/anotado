@@ -3,7 +3,7 @@
  * Coordina el router, estado de configuración, menú de navegación y Service Worker.
  */
 
-import { exportAllData, getById, importAllData, putRecord } from './core/db.js';
+import { exportAllData, getAll, getById, importAllData, putRecord } from './core/db.js';
 import { detectBrowserLanguage, getLanguage, setLanguage, t } from './core/i18n.js';
 import { CURRENCIES, getDefaultCurrency, setDefaultCurrency } from './core/currency.js';
 import { applyTheme, getThemeMode, initThemeListener, isDarkActive } from './core/theme.js';
@@ -223,14 +223,24 @@ function renderSidebar() {
   document.getElementById('side-settings-btn').addEventListener('click', openSettingsModal);
 }
 
-function renderTopbar() {
+async function renderTopbar() {
   const topbar = document.getElementById('topbar');
   if (!topbar) return;
 
   const showBack = currentRoute !== 'home';
+  const showListSelector = currentRoute === 'market' && Boolean(currentParams?.listId);
+
+  let lists = [];
+  if (showListSelector) {
+    lists = await getAll('shopping_lists');
+    lists.sort((a, b) => {
+      if (Boolean(a.isArchived) !== Boolean(b.isArchived)) return a.isArchived ? 1 : -1;
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
+  }
 
   topbar.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 10px;">
+    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
       ${showBack ? `
         <button type="button" id="top-back-btn" class="btn btn-sm btn-ghost mobile-only">
           ◀ ${escapeHtml(t('app.backToMenu'))}
@@ -244,10 +254,21 @@ function renderTopbar() {
           </div>
         </div>
       `}
-      <span class="badge badge-green" style="font-family: monospace;">${escapeHtml(getDefaultCurrency())}</span>
     </div>
 
-    <div style="display: flex; align-items: center; gap: 8px;">
+    <div class="topbar-center">
+      ${showListSelector && lists.length > 0 ? `
+        <select id="topbar-list-select" class="topbar-select" aria-label="${escapeHtml(t('market.title'))}">
+          ${lists.map((l) => `
+            <option value="${escapeHtml(l.id)}" ${l.id === currentParams.listId ? 'selected' : ''}>
+              ${l.isArchived ? '📦' : '🛒'} ${escapeHtml(l.title)}
+            </option>
+          `).join('')}
+        </select>
+      ` : ''}
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
       <button type="button" id="top-theme-btn" class="btn-icon" aria-label="${escapeHtml(t('settings.themeLabel'))}">
         ${isDarkActive() ? '☀️' : '🌙'}
       </button>
@@ -260,6 +281,13 @@ function renderTopbar() {
   const backBtn = document.getElementById('top-back-btn');
   if (backBtn) backBtn.addEventListener('click', () => navigate('home'));
 
+  const listSelect = document.getElementById('topbar-list-select');
+  if (listSelect) {
+    listSelect.addEventListener('change', (e) => {
+      navigate('market', { listId: e.target.value });
+    });
+  }
+
   document.getElementById('top-theme-btn').addEventListener('click', async () => {
     const next = isDarkActive() ? 'light' : 'dark';
     applyTheme(next);
@@ -270,9 +298,9 @@ function renderTopbar() {
   document.getElementById('top-settings-btn').addEventListener('click', openSettingsModal);
 }
 
-function renderShell() {
+async function renderShell() {
   renderSidebar();
-  renderTopbar();
+  await renderTopbar();
 }
 
 export async function navigate(route, params = {}) {
@@ -282,7 +310,7 @@ export async function navigate(route, params = {}) {
 }
 
 async function renderApp() {
-  renderShell();
+  await renderShell();
   const content = document.getElementById('content');
   const stickyBar = document.getElementById('sticky-bar');
   stickyBar.classList.add('hidden');

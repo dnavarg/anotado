@@ -490,31 +490,14 @@ export async function renderMarket(container, stickyBar, { navigate, params = {}
 
   container.innerHTML = `
     <section>
-      <!-- Selector de Lista y Acciones -->
+      <!-- Acciones de la Lista (Agregar primero, Finalizar y Compartir) -->
       <div class="toolbar">
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 240px;">
-          <button type="button" id="btn-back-to-lists" class="btn btn-sm btn-ghost">
-            ◀ ${escapeHtml(t('market.backToLists'))}
-          </button>
-          <select id="active-list-select" class="select" aria-label="${escapeHtml(t('market.title'))}" style="font-weight: 800;">
-            ${lists.map((l) => `
-              <option value="${escapeHtml(l.id)}" ${l.id === activeList.id ? 'selected' : ''}>
-                ${l.isArchived ? '📦' : '🛒'} ${escapeHtml(l.title)} (${escapeHtml(l.currency)})${l.isArchived ? ` [${escapeHtml(t('market.archivedBadge'))}]` : ''}
-              </option>
-            `).join('')}
-          </select>
-          <button type="button" id="btn-edit-list" class="btn-icon" title="${escapeHtml(t('app.edit'))}">✏️</button>
-          <button type="button" id="btn-del-list" class="btn-icon" title="${escapeHtml(t('app.delete'))}" style="color: var(--danger);">🗑️</button>
-        </div>
-
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="button" id="btn-new-list" class="btn btn-sm btn-ghost">+ ${escapeHtml(t('market.newList'))}</button>
-          <button type="button" id="btn-share-list" class="btn btn-sm btn-ghost">💬 ${escapeHtml(t('market.shareBtn'))}</button>
-          ${totals.inCartCount > 0 ? `<button type="button" id="btn-clear-cart" class="btn btn-sm btn-ghost">🧹 ${escapeHtml(t('market.clearCart'))}</button>` : ''}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; width: 100%;">
+          <button type="button" id="btn-add-product" class="btn btn-sm btn-primary">+ ${escapeHtml(t('market.addItem'))}</button>
           <button type="button" id="btn-archive-list" class="btn btn-sm btn-ghost">
             ${activeList.isArchived ? `↩️ ${escapeHtml(t('market.reopenList'))}` : `✓ ${escapeHtml(t('market.finishShopping'))}`}
           </button>
-          <button type="button" id="btn-add-product" class="btn btn-sm btn-primary">+ ${escapeHtml(t('market.addItem'))}</button>
+          <button type="button" id="btn-share-list" class="btn btn-sm btn-ghost">💬 ${escapeHtml(t('market.shareBtn'))}</button>
         </div>
       </div>
 
@@ -622,53 +605,6 @@ export async function renderMarket(container, stickyBar, { navigate, params = {}
   // Event Listeners
   const rerender = () => renderMarket(container, stickyBar, { navigate, params: { listId: activeList.id } });
 
-  document.getElementById('btn-back-to-lists').addEventListener('click', () => {
-    selectedCategory = 'ALL';
-    navigate('market');
-  });
-
-  document.getElementById('active-list-select').addEventListener('change', (e) => {
-    selectedCategory = 'ALL';
-    navigate('market', { listId: e.target.value });
-  });
-
-  document.getElementById('btn-new-list').addEventListener('click', () => {
-    openListModal(null, (created) => {
-      selectedCategory = 'ALL';
-      navigate('market', { listId: created.id });
-    });
-  });
-
-  document.getElementById('btn-edit-list').addEventListener('click', () => {
-    openListModal(activeList, rerender);
-  });
-
-  document.getElementById('btn-del-list').addEventListener('click', async () => {
-    const confirmed = await confirmModal({
-      title: t('app.delete'),
-      message: t('market.confirmDeleteList'),
-      confirmLabel: t('app.delete'),
-      cancelLabel: t('app.cancel')
-    });
-    if (!confirmed) return;
-    await deleteShoppingList(activeList.id);
-    selectedCategory = 'ALL';
-    navigate('market');
-  });
-
-  const clearCartBtn = document.getElementById('btn-clear-cart');
-  if (clearCartBtn) {
-    clearCartBtn.addEventListener('click', async () => {
-      const checkedItems = allItems.filter((it) => it.inCart);
-      if (checkedItems.length === 0) return;
-      for (const it of checkedItems) {
-        await deleteRecord('products', it.id);
-      }
-      showToast(t('market.cartCleared'));
-      rerender();
-    });
-  }
-
   document.getElementById('btn-archive-list').addEventListener('click', async () => {
     activeList.isArchived = !activeList.isArchived;
     activeList.updatedAt = Date.now();
@@ -676,7 +612,7 @@ export async function renderMarket(container, stickyBar, { navigate, params = {}
     if (activeList.isArchived) {
       showToast(t('market.listArchived'));
     }
-    rerender();
+    navigate('market', { listId: activeList.id });
   });
 
   document.getElementById('btn-add-product').addEventListener('click', () => {
