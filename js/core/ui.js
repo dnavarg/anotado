@@ -2,6 +2,8 @@
  * Utilidades compartidas de interfaz (escapado XSS, modales accesibles, confirmación y notificaciones toast).
  */
 
+import { t } from './i18n.js';
+
 let lastFocusedElement = null;
 let activeEscHandler = null;
 
@@ -67,7 +69,7 @@ export function openModal(title, bodyHtml) {
     <div class="modal-card">
       <div class="modal-header">
         <h3 class="modal-title">${escapeHtml(title)}</h3>
-        <button type="button" class="btn-icon" id="modal-close-btn" aria-label="Cerrar">✕</button>
+        <button type="button" class="btn-icon" id="modal-close-btn" aria-label="${escapeHtml(t('app.close'))}">✕</button>
       </div>
       <div id="modal-body">${bodyHtml}</div>
     </div>

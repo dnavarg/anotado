@@ -82,12 +82,21 @@ function openNoteModal(note, onSaved) {
 
     let items = [];
     if (type === 'checklist') {
-      const existingDone = new Map((note?.items || []).map((it) => [it.text, it.done]));
+      const prevItems = note?.items || [];
       items = rawContent
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
-        .map((text) => ({ text, done: existingDone.get(text) || false }));
+        .map((text, idx) => {
+          const prev = prevItems[idx]?.text === text
+            ? prevItems[idx]
+            : prevItems.find((it) => it.text === text);
+          return {
+            id: prev?.id || createId(),
+            text,
+            done: prev?.done || false
+          };
+        });
     }
 
     const record = {
@@ -109,25 +118,137 @@ function openNoteModal(note, onSaved) {
   });
 }
 
-/**
- * Renderiza la pantalla de Notas Rápidas.
- */
-export async function renderNotes(container, { navigate }) {
-  const notes = await getAll('notes');
+function filterAndSortNotes(notes) {
   const query = searchTerm.trim().toLowerCase();
-
-  const filtered = notes
+  return notes
     .filter((n) => {
       if (!query) return true;
       const inTitle = n.title.toLowerCase().includes(query);
       const inContent = (n.content || '').toLowerCase().includes(query);
       const inTag = (n.tag || '').toLowerCase().includes(query);
-      return inTitle || inContent || inTag;
+      const inItems = (n.items || []).some((it) => (it.text || '').toLowerCase().includes(query));
+      return inTitle || inContent || inTag || inItems;
     })
     .sort((a, b) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
       return b.updatedAt - a.updatedAt;
     });
+}
+
+function renderNotesList(listContainer, notes, { navigate, onReload }) {
+  const filtered = filterAndSortNotes(notes);
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `
+      <div class="empty-state">
+        <div style="font-size: 2.2rem; margin-bottom: 8px;">📝</div>
+        <p style="margin: 0; font-weight: 600;">${escapeHtml(t('notes.empty'))}</p>
+      </div>
+    `;
+    return;
+  }
+
+  listContainer.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      ${filtered.map((n) => `
+        <article class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge badge-amber">${escapeHtml(n.tag || '#General')}</span>
+              ${n.isPinned ? `<span class="badge badge-green">📌</span>` : ''}
+              ${n.linkedReminderId ? `<span class="badge badge-blue">⏰ ${escapeHtml(t('notes.linkedReminder'))}</span>` : ''}
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost" data-alarm-note="${escapeHtml(n.id)}">
+              🔔 ${escapeHtml(t('notes.createAlarm'))}
+            </button>
+          </div>
+
+          <h3 style="margin: 10px 0 8px; font-size: 1.1rem; font-weight: 800;">
+            ${escapeHtml(n.title)}
+          </h3>
+
+          ${n.type === 'checklist' ? `
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+              ${(n.items || []).map((it, idx) => `
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                  <input type="checkbox" ${it.done ? 'checked' : ''}
+                    data-check-note="${escapeHtml(n.id)}" data-check-idx="${idx}"
+                    style="width: 22px; height: 22px; accent-color: var(--primary);" />
+                  <span style="${it.done ? 'text-decoration: line-through; opacity: 0.6;' : ''}">
+                    ${escapeHtml(it.text)}
+                  </span>
+                </label>
+              `).join('')}
+            </div>
+          ` : `
+            <p style="margin: 0 0 12px; color: var(--text-muted); white-space: pre-wrap;">${escapeHtml(n.content)}</p>
+          `}
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm btn-ghost" data-edit-note="${escapeHtml(n.id)}">
+              ✏️ ${escapeHtml(t('app.edit'))}
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" data-del-note="${escapeHtml(n.id)}" style="color: var(--danger);">
+              🗑️ ${escapeHtml(t('app.delete'))}
+            </button>
+          </div>
+        </article>
+      `).join('')}
+    </div>
+  `;
+
+  listContainer.querySelectorAll('[data-check-note]').forEach((chk) => {
+    chk.addEventListener('change', async () => {
+      const noteId = chk.getAttribute('data-check-note');
+      const idx = Number(chk.getAttribute('data-check-idx'));
+      const note = notes.find((n) => n.id === noteId);
+      if (!note || !note.items[idx]) return;
+      note.items[idx].done = chk.checked;
+      note.updatedAt = Date.now();
+      await putRecord('notes', note);
+      renderNotesList(listContainer, notes, { navigate, onReload });
+    });
+  });
+
+  listContainer.querySelectorAll('[data-alarm-note]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const note = notes.find((n) => n.id === btn.getAttribute('data-alarm-note'));
+      if (!note) return;
+      openReminderModal({
+        prefillTitle: note.title,
+        linkedNoteId: note.id,
+        onSaved: () => navigate('reminders')
+      });
+    });
+  });
+
+  listContainer.querySelectorAll('[data-edit-note]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const note = notes.find((n) => n.id === btn.getAttribute('data-edit-note'));
+      if (note) openNoteModal(note, onReload);
+    });
+  });
+
+  listContainer.querySelectorAll('[data-del-note]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const confirmed = await confirmModal({
+        title: t('app.delete'),
+        message: t('app.confirmDelete'),
+        confirmLabel: t('app.delete'),
+        cancelLabel: t('app.cancel')
+      });
+      if (!confirmed) return;
+      await deleteRecord('notes', btn.getAttribute('data-del-note'));
+      onReload();
+    });
+  });
+}
+
+/**
+ * Renderiza la pantalla de Notas Rápidas.
+ */
+export async function renderNotes(container, { navigate }) {
+  const notes = await getAll('notes');
 
   container.innerHTML = `
     <section>
@@ -147,120 +268,24 @@ export async function renderNotes(container, { navigate }) {
           value="${escapeHtml(searchTerm)}" />
       </div>
 
-      ${filtered.length === 0 ? `
-        <div class="empty-state">
-          <div style="font-size: 2.2rem; margin-bottom: 8px;">📝</div>
-          <p style="margin: 0; font-weight: 600;">${escapeHtml(t('notes.empty'))}</p>
-        </div>
-      ` : `
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          ${filtered.map((n) => `
-            <article class="card">
-              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span class="badge badge-amber">${escapeHtml(n.tag || '#General')}</span>
-                  ${n.isPinned ? `<span class="badge badge-green">📌</span>` : ''}
-                  ${n.linkedReminderId ? `<span class="badge badge-blue">⏰ ${escapeHtml(t('notes.linkedReminder'))}</span>` : ''}
-                </div>
-                <button type="button" class="btn btn-sm btn-ghost" data-alarm-note="${escapeHtml(n.id)}">
-                  🔔 ${escapeHtml(t('notes.createAlarm'))}
-                </button>
-              </div>
-
-              <h3 style="margin: 10px 0 8px; font-size: 1.1rem; font-weight: 800;">
-                ${escapeHtml(n.title)}
-              </h3>
-
-              ${n.type === 'checklist' ? `
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                  ${(n.items || []).map((it, idx) => `
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                      <input type="checkbox" ${it.done ? 'checked' : ''}
-                        data-check-note="${escapeHtml(n.id)}" data-check-idx="${idx}"
-                        style="width: 22px; height: 22px; accent-color: var(--primary);" />
-                      <span style="${it.done ? 'text-decoration: line-through; opacity: 0.6;' : ''}">
-                        ${escapeHtml(it.text)}
-                      </span>
-                    </label>
-                  `).join('')}
-                </div>
-              ` : `
-                <p style="margin: 0 0 12px; color: var(--text-muted); white-space: pre-wrap;">${escapeHtml(n.content)}</p>
-              `}
-
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button type="button" class="btn btn-sm btn-ghost" data-edit-note="${escapeHtml(n.id)}">
-                  ✏️ ${escapeHtml(t('app.edit'))}
-                </button>
-                <button type="button" class="btn btn-sm btn-ghost" data-del-note="${escapeHtml(n.id)}" style="color: var(--danger);">
-                  🗑️ ${escapeHtml(t('app.delete'))}
-                </button>
-              </div>
-            </article>
-          `).join('')}
-        </div>
-      `}
+      <div id="notes-list-container"></div>
     </section>
   `;
 
+  const listContainer = document.getElementById('notes-list-container');
+  const onReload = () => renderNotes(container, { navigate });
+  renderNotesList(listContainer, notes, { navigate, onReload });
+
   document.getElementById('btn-new-note').addEventListener('click', () => {
-    openNoteModal(null, () => renderNotes(container, { navigate }));
+    openNoteModal(null, onReload);
   });
 
-  const searchInput = document.getElementById('notes-search');
-  searchInput.addEventListener('input', (e) => {
+  let debounceId = null;
+  document.getElementById('notes-search').addEventListener('input', (e) => {
     searchTerm = e.target.value;
-    renderNotes(container, { navigate });
-    const restored = document.getElementById('notes-search');
-    if (restored) {
-      restored.focus();
-      restored.setSelectionRange(restored.value.length, restored.value.length);
-    }
-  });
-
-  container.querySelectorAll('[data-check-note]').forEach((chk) => {
-    chk.addEventListener('change', async () => {
-      const noteId = chk.getAttribute('data-check-note');
-      const idx = Number(chk.getAttribute('data-check-idx'));
-      const note = notes.find((n) => n.id === noteId);
-      if (!note || !note.items[idx]) return;
-      note.items[idx].done = chk.checked;
-      note.updatedAt = Date.now();
-      await putRecord('notes', note);
-      renderNotes(container, { navigate });
-    });
-  });
-
-  container.querySelectorAll('[data-alarm-note]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const note = notes.find((n) => n.id === btn.getAttribute('data-alarm-note'));
-      if (!note) return;
-      openReminderModal({
-        prefillTitle: note.title,
-        linkedNoteId: note.id,
-        onSaved: () => navigate('reminders')
-      });
-    });
-  });
-
-  container.querySelectorAll('[data-edit-note]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const note = notes.find((n) => n.id === btn.getAttribute('data-edit-note'));
-      if (note) openNoteModal(note, () => renderNotes(container, { navigate }));
-    });
-  });
-
-  container.querySelectorAll('[data-del-note]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const confirmed = await confirmModal({
-        title: t('app.delete'),
-        message: t('app.confirmDelete'),
-        confirmLabel: t('app.delete'),
-        cancelLabel: t('app.cancel')
-      });
-      if (!confirmed) return;
-      await deleteRecord('notes', btn.getAttribute('data-del-note'));
-      renderNotes(container, { navigate });
-    });
+    if (debounceId) clearTimeout(debounceId);
+    debounceId = setTimeout(() => {
+      renderNotesList(listContainer, notes, { navigate, onReload });
+    }, 120);
   });
 }

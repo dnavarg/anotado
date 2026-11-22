@@ -36,8 +36,26 @@ anotado/
     └── module-tests.html   # Suite de pruebas modulares en navegador
 ```
 
+## Cómo activar GitHub Pages (uso en celulares)
+
+1. Ve a **Settings → Pages** en tu repositorio de GitHub.
+2. En **Branch**, selecciona **`main`** y carpeta **`/ (root)`**, luego presiona **Save**.
+3. En ~1 minuto la app estará disponible por HTTPS en `https://<tu-usuario>.github.io/anotado/`.
+
 ## Cómo instalar en el celular
 
 1. Abre la URL de **GitHub Pages** del proyecto en **Safari (iPhone)** o **Chrome (Android)**.
 2. En iPhone: toca el botón **Compartir** y selecciona **"Agregar a pantalla de inicio"**.
 3. En Android: toca el menú **⋮** y selecciona **"Instalar aplicación"** o **"Agregar a pantalla principal"**.
+
+## Cómo ejecutar pruebas localmente
+
+Dado que la app usa módulos ES nativos (`type="module"`), requiere servirse por HTTP local:
+
+```bash
+python3 -m http.server 4173
+```
+
+Luego abre en tu navegador:
+- App: `http://127.0.0.1:4173/index.html`
+- Suite de pruebas (base aislada `AnotadoDB_test`): `http://127.0.0.1:4173/tests/module-tests.html`

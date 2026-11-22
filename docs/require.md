@@ -20,8 +20,8 @@ Aplicación móvil ligera (PWA), 100% *Offline-First*, diseñada con foco especi
 2. **Motor de Personalización de Temas:**
    * Detección automática del tema del sistema (`prefers-color-scheme`).
    * Selector manual del usuario: **Sistema (Automático)** | **Modo Claro (Light)** | **Modo Oscuro (Dark)**.
-3. **Internacionalización (i18n) & Multimoneda:** Bilingüe (Español / Inglés) y soporte para divisas globales y regionales (`ARS`, `USD`, `EUR`, `MXN`, `CLP`).
-4. **Local-First (Offline Real):** Toda la información se guarda en IndexedDB (Dexie.js). No depende de conexión en góndola ni genera retrasos.
+3. **Internacionalización (i18n) & Multimoneda:** Bilingüe (Español / Inglés) y soporte para divisas globales y regionales (`CLP`, `USD`, `EUR`, `ARS`, `MXN`).
+4. **Local-First (Offline Real) sin dependencias externas:** Toda la información se guarda en IndexedDB nativo (`js/core/db.js`) con respaldo/importación JSON, usando JavaScript modular ES6 sin build step. Para alarmas con la app cerrada, los recordatorios se exportan como eventos `.ics` al calendario nativo del dispositivo.
 
 ---
 
@@ -136,7 +136,7 @@ erDiagram
 * **i18n & Multimoneda:**
   * Diccionarios completos ES / EN.
   * Formateo nativo de monedas con símbolos y separadores regionales (`ARS`, `USD`, `EUR`, `MXN`, `CLP`).
-* **Storage Engine:** Base de datos Dexie con tablas `settings`, `reminders`, `shopping_lists`, `products`, `notes`.
+* **Storage Engine:** Base de datos IndexedDB nativa (`js/core/db.js`) con tablas `settings`, `reminders`, `shopping_lists`, `products`, `notes` y `price_history`.
 
 ---
 

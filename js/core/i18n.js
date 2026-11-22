@@ -22,7 +22,9 @@ export const TRANSLATIONS = {
       undo: 'Deshacer',
       itemDeleted: 'Elemento eliminado',
       updateAvailable: 'Hay una nueva versión disponible',
-      updateNow: 'Actualizar'
+      updateNow: 'Actualizar',
+      maxLabel: 'Máx:',
+      localeCode: 'es-CL'
     },
     home: {
       greeting: 'Hola, buen día',
@@ -74,6 +76,13 @@ export const TRANSLATIONS = {
       productPlaceholder: 'Ej: Leche entera 1L',
       category: 'Rubro / Categoría',
       quantity: 'Cantidad',
+      unitLabel: 'Unidad',
+      units: {
+        un: 'un',
+        kg: 'kg',
+        g: 'g',
+        L: 'L'
+      },
       unitPrice: 'Precio Unitario',
       subtotal: 'Subtotal',
       inCart: 'En el Carro',
@@ -121,6 +130,7 @@ export const TRANSLATIONS = {
       completed: 'Completado',
       markDone: 'Listo',
       dueAlertTitle: 'Recordatorio',
+      overdueGrouped: 'recordatorios pendientes',
       exportCalendar: 'Calendario (.ics)',
       calendarExported: 'Evento descargado para tu calendario',
       openAppNotice: 'Las alertas web suenan con la app abierta. Para que suenen con el teléfono bloqueado, agrégalo a tu Calendario (.ics).',
@@ -171,7 +181,9 @@ export const TRANSLATIONS = {
       undo: 'Undo',
       itemDeleted: 'Item deleted',
       updateAvailable: 'A new version is available',
-      updateNow: 'Update'
+      updateNow: 'Update',
+      maxLabel: 'Max:',
+      localeCode: 'en-US'
     },
     home: {
       greeting: 'Hello, good day',
@@ -223,6 +235,13 @@ export const TRANSLATIONS = {
       productPlaceholder: 'E.g. Whole milk 1L',
       category: 'Category',
       quantity: 'Quantity',
+      unitLabel: 'Unit',
+      units: {
+        un: 'un',
+        kg: 'kg',
+        g: 'g',
+        L: 'L'
+      },
       unitPrice: 'Unit Price',
       subtotal: 'Subtotal',
       inCart: 'In Cart',
@@ -270,6 +289,7 @@ export const TRANSLATIONS = {
       completed: 'Completed',
       markDone: 'Done',
       dueAlertTitle: 'Reminder',
+      overdueGrouped: 'pending reminders',
       exportCalendar: 'Calendar (.ics)',
       calendarExported: 'Calendar event downloaded',
       openAppNotice: 'Web alerts ring while the app is open. For alarms while the phone is locked, add to Calendar (.ics).',

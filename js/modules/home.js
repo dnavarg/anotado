@@ -38,7 +38,7 @@ export async function renderHome(container, { navigate }) {
     .sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
   const nextReminder = pendingReminders[0] || null;
 
-  const locale = getLanguage() === 'en' ? 'en-US' : 'es-CL';
+  const locale = t('app.localeCode');
   const nextDateText = nextReminder
     ? new Date(nextReminder.scheduledTime).toLocaleString(locale, {
         weekday: 'short',

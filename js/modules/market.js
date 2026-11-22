@@ -9,33 +9,46 @@ import { CURRENCIES, formatMoney, getDefaultCurrency, parseNumericInput, parseQu
 import { closeModal, confirmModal, escapeHtml, openModal, showToast } from '../core/ui.js';
 
 const CATEGORY_KEYS = ['Abarrotes', 'Lácteos', 'Carnes', 'Verduras', 'Panadería', 'Limpieza', 'Perfumería', 'Otros'];
+const UNIT_STEPS = {
+  un: { step: 1, min: 1 },
+  kg: { step: 0.5, min: 0.5 },
+  g: { step: 100, min: 100 },
+  L: { step: 0.5, min: 0.5 }
+};
 
 let selectedCategory = 'ALL';
 let activeListId = null;
 
 /**
- * Calcula los totales de una lista de productos.
+ * Calcula los totales de una lista usando aritmética entera (centavos) para evitar errores de punto flotante.
  */
-export function calculateListTotals(items, budgetLimit = 0) {
-  let totalInCart = 0;
-  let totalEstimated = 0;
+export function calculateListTotals(items, budgetLimit = 0, currencyCode = getDefaultCurrency()) {
+  const decimals = CURRENCIES[currencyCode]?.decimals ?? 2;
+  const factor = Math.pow(10, decimals);
+
+  let cartMinor = 0;
+  let estMinor = 0;
   let inCartCount = 0;
 
   for (const item of items) {
     const qty = Number(item.quantity) || 0;
-    const price = Number(item.unitPrice) || 0;
-    const subtotal = qty * price;
-    totalEstimated += subtotal;
+    const priceMinor = Math.round((Number(item.unitPrice) || 0) * factor);
+    const subMinor = Math.round(qty * priceMinor);
+    estMinor += subMinor;
     if (item.inCart) {
-      totalInCart += subtotal;
+      cartMinor += subMinor;
       inCartCount += 1;
     }
   }
 
-  const hasBudget = budgetLimit > 0;
-  const budgetDiff = budgetLimit - totalEstimated;
-  const isExceeded = hasBudget && totalEstimated > budgetLimit;
-  const progressPct = hasBudget ? Math.min(100, (totalEstimated / budgetLimit) * 100) : 0;
+  const totalInCart = cartMinor / factor;
+  const totalEstimated = estMinor / factor;
+  const budgetMinor = Math.round((Number(budgetLimit) || 0) * factor);
+
+  const hasBudget = budgetMinor > 0;
+  const budgetDiff = (budgetMinor - estMinor) / factor;
+  const isExceeded = hasBudget && estMinor > budgetMinor;
+  const progressPct = hasBudget ? Math.min(100, (estMinor / budgetMinor) * 100) : 0;
 
   return {
     totalInCart,
@@ -53,7 +66,7 @@ export function calculateListTotals(items, budgetLimit = 0) {
  * Formatea la lista de compras en texto plano para compartir por WhatsApp / Mensajería.
  */
 export function formatListForShare(list, items) {
-  const totals = calculateListTotals(items, list.budgetLimit);
+  const totals = calculateListTotals(items, list.budgetLimit, list.currency);
   const lines = [`🛒 *${list.title}*`, ''];
 
   for (const item of items) {
@@ -170,11 +183,20 @@ async function openProductModal(list, existingItem, onSaved) {
         </div>
 
         <div class="field">
-          <label for="prod-price">${escapeHtml(t('market.unitPrice'))} (${escapeHtml(list.currency)})</label>
-          <input id="prod-price" class="input" type="text" inputmode="decimal"
-            placeholder="0"
-            value="${escapeHtml(existingItem?.unitPrice ?? '')}" />
+          <label for="prod-unit">${escapeHtml(t('market.unitLabel'))}</label>
+          <select id="prod-unit" class="select">
+            ${Object.keys(UNIT_STEPS).map((u) => `
+              <option value="${u}" ${(existingItem?.unit || 'un') === u ? 'selected' : ''}>${escapeHtml(t('market.units.' + u))}</option>
+            `).join('')}
+          </select>
         </div>
+      </div>
+
+      <div class="field">
+        <label for="prod-price">${escapeHtml(t('market.unitPrice'))} (${escapeHtml(list.currency)})</label>
+        <input id="prod-price" class="input" type="text" inputmode="decimal"
+          placeholder="0"
+          value="${escapeHtml(existingItem?.unitPrice ?? '')}" />
       </div>
 
       <div style="padding: 12px; border-radius: 12px; background-color: var(--surface-subtle); border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -245,6 +267,7 @@ async function openProductModal(list, existingItem, onSaved) {
     if (!name) return;
 
     const quantity = parseQuantityInput(qtyInput.value) || 1;
+    const unit = document.getElementById('prod-unit').value || 'un';
     const unitPrice = parseNumericInput(priceInput.value, list.currency);
     const category = catSelect.value;
 
@@ -254,6 +277,7 @@ async function openProductModal(list, existingItem, onSaved) {
       name,
       category,
       quantity,
+      unit,
       unitPrice,
       inCart: existingItem?.inCart || false,
       createdAt: existingItem?.createdAt || Date.now()
@@ -336,7 +360,7 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
     ? sortedItems
     : sortedItems.filter((it) => it.category === selectedCategory);
 
-  const totals = calculateListTotals(allItems, activeList.budgetLimit);
+  const totals = calculateListTotals(allItems, activeList.budgetLimit, activeList.currency);
 
   container.innerHTML = `
     <section>
@@ -403,7 +427,7 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
                 <div class="product-info" role="button" tabindex="0" data-edit-prod="${escapeHtml(item.id)}" style="cursor: pointer;">
                   <div class="product-name">${escapeHtml(item.name)}</div>
                   <div class="product-sub">
-                    <span>${escapeHtml(item.quantity)} × ${escapeHtml(formatMoney(item.unitPrice, activeList.currency))}</span>
+                    <span>${escapeHtml(item.quantity)} ${escapeHtml(item.unit || 'un')} × ${escapeHtml(formatMoney(item.unitPrice, activeList.currency))}</span>
                     <span class="badge badge-green" style="font-size: 0.75rem; padding: 2px 8px;">
                       ${escapeHtml(t('market.categories.' + (item.category || 'Otros')))}
                     </span>
@@ -459,7 +483,7 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
               : `✓ ${escapeHtml(t('market.budgetWithin'))} (${escapeHtml(t('market.budgetRemaining'))}: ${escapeHtml(formatMoney(totals.budgetDiff, activeList.currency))})`}
           </span>
           <span class="mono-num" style="color: var(--text-muted);">
-            Max: ${escapeHtml(formatMoney(activeList.budgetLimit, activeList.currency))}
+            ${escapeHtml(t('app.maxLabel'))} ${escapeHtml(formatMoney(activeList.budgetLimit, activeList.currency))}
           </span>
         </div>
       ` : ''}
@@ -586,7 +610,8 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
     btn.addEventListener('click', async () => {
       const item = allItems.find((it) => it.id === btn.getAttribute('data-qty-plus'));
       if (!item) return;
-      item.quantity = Number((item.quantity + 1).toFixed(2));
+      const cfg = UNIT_STEPS[item.unit || 'un'] || UNIT_STEPS.un;
+      item.quantity = Number((item.quantity + cfg.step).toFixed(2));
       await putRecord('products', item);
       rerender();
     });
@@ -596,7 +621,8 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
     btn.addEventListener('click', async () => {
       const item = allItems.find((it) => it.id === btn.getAttribute('data-qty-minus'));
       if (!item) return;
-      item.quantity = Math.max(0.5, Number((item.quantity - 1).toFixed(2)));
+      const cfg = UNIT_STEPS[item.unit || 'un'] || UNIT_STEPS.un;
+      item.quantity = Math.max(cfg.min, Number((item.quantity - cfg.step).toFixed(2)));
       await putRecord('products', item);
       rerender();
     });

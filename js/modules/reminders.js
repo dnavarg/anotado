@@ -223,7 +223,7 @@ export async function renderReminders(container, { navigate }) {
     return a.scheduledTime - b.scheduledTime;
   });
 
-  const locale = getLanguage() === 'en' ? 'en-US' : 'es-CL';
+  const locale = t('app.localeCode');
 
   container.innerHTML = `
     <section>
@@ -374,44 +374,66 @@ export async function renderReminders(container, { navigate }) {
 
 /**
  * Revisa recordatorios vencidos y dispara notificación local vía Service Worker (compatible con Android Chrome).
+ * Agrupa recordatorios vencidos antiguos (>15 min) en un único aviso para evitar avalanchas al abrir la app.
  */
 export async function checkDueReminders(onOpenLinkedList) {
   const reminders = await getAll('reminders');
   const now = Date.now();
+  const RECENT_WINDOW_MS = 15 * 60 * 1000;
 
-  for (const r of reminders) {
-    if (!r.isCompleted && !r.notified && r.scheduledTime <= now) {
-      r.notified = true;
-      await putRecord('reminders', r);
+  const due = reminders.filter((r) => !r.isCompleted && !r.notified && r.scheduledTime <= now);
+  if (due.length === 0) return;
 
-      showToast(`⏰ ${t('reminders.dueAlertTitle')}: ${r.title}`, 5000);
+  const recentDue = [];
+  const staleDue = [];
+  for (const r of due) {
+    if (now - r.scheduledTime <= RECENT_WINDOW_MS) {
+      recentDue.push(r);
+    } else {
+      staleDue.push(r);
+    }
+  }
 
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const bodyText = r.linkedShoppingListId ? t('reminders.linkedBadge') : t('reminders.categories.' + r.category);
-        const notifOptions = {
-          body: bodyText,
-          icon: './assets/icon.svg',
-          data: { listId: r.linkedShoppingListId || null }
-        };
+  for (const r of due) {
+    r.notified = true;
+    await putRecord('reminders', r);
+  }
 
-        try {
-          if ('serviceWorker' in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            if (reg && typeof reg.showNotification === 'function') {
-              await reg.showNotification(`Anotado: ${r.title}`, notifOptions);
-              continue;
-            }
+  if (staleDue.length > 1) {
+    showToast(`⏰ ${staleDue.length} ${t('reminders.overdueGrouped')}`, 5000);
+  } else if (staleDue.length === 1) {
+    recentDue.push(staleDue[0]);
+  }
+
+  for (const r of recentDue) {
+    showToast(`⏰ ${t('reminders.dueAlertTitle')}: ${r.title}`, 5000);
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const bodyText = r.linkedShoppingListId ? t('reminders.linkedBadge') : t('reminders.categories.' + r.category);
+      const notifTitle = `${t('app.name')}: ${r.title}`;
+      const notifOptions = {
+        body: bodyText,
+        icon: './assets/icon-192.png',
+        data: { listId: r.linkedShoppingListId || null }
+      };
+
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && typeof reg.showNotification === 'function') {
+            await reg.showNotification(notifTitle, notifOptions);
+            continue;
           }
-          const notif = new Notification(`Anotado: ${r.title}`, notifOptions);
-          notif.onclick = () => {
-            window.focus();
-            if (r.linkedShoppingListId && typeof onOpenLinkedList === 'function') {
-              onOpenLinkedList(r.linkedShoppingListId);
-            }
-          };
-        } catch {
-          // El toast en pantalla ya fue mostrado como respaldo
         }
+        const notif = new Notification(notifTitle, notifOptions);
+        notif.onclick = () => {
+          window.focus();
+          if (r.linkedShoppingListId && typeof onOpenLinkedList === 'function') {
+            onOpenLinkedList(r.linkedShoppingListId);
+          }
+        };
+      } catch {
+        // El toast en pantalla ya fue mostrado como respaldo
       }
     }
   }
