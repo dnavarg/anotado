@@ -680,7 +680,23 @@ button, input, select, textarea {
   font-weight: 700;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
   border: 1px solid #334155;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.toast-action {
+  background-color: var(--primary-bright);
+  color: #06281e;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .hidden {

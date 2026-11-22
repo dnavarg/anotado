@@ -18,7 +18,11 @@ export const TRANSLATIONS = {
       close: 'Cerrar',
       search: 'Buscar...',
       all: 'Todos',
-      confirmDelete: '¿Deseas eliminar este elemento?'
+      confirmDelete: '¿Deseas eliminar este elemento?',
+      undo: 'Deshacer',
+      itemDeleted: 'Elemento eliminado',
+      updateAvailable: 'Hay una nueva versión disponible',
+      updateNow: 'Actualizar'
     },
     home: {
       greeting: 'Hola, buen día',
@@ -48,7 +52,14 @@ export const TRANSLATIONS = {
       notificationsLabel: 'Notificaciones de Recordatorios',
       notificationsBtn: 'Activar Permiso de Alarmas',
       notificationsGranted: 'Alarmas activadas en este dispositivo',
-      notificationsDenied: 'Permiso bloqueado en el navegador'
+      notificationsDenied: 'Permiso bloqueado en el navegador',
+      backupLabel: 'Respaldo de Datos',
+      exportBackup: 'Exportar respaldo (JSON)',
+      importBackup: 'Importar respaldo',
+      backupExported: 'Respaldo descargado',
+      backupImported: 'Datos restaurados correctamente',
+      backupError: 'El archivo de respaldo no es válido',
+      iosTip: 'En iPhone, toca Compartir y "Agregar a pantalla de inicio" para proteger tus datos.'
     },
     market: {
       title: 'Lista de Compras',
@@ -105,6 +116,10 @@ export const TRANSLATIONS = {
       completed: 'Completado',
       markDone: 'Listo',
       dueAlertTitle: 'Recordatorio',
+      exportCalendar: 'Calendario (.ics)',
+      calendarExported: 'Evento descargado para tu calendario',
+      openAppNotice: 'Las alertas web suenan con la app abierta. Para que suenen con el teléfono bloqueado, agrégalo a tu Calendario (.ics).',
+      confirmDeleteMessage: '¿Deseas eliminar este recordatorio?',
       categories: {
         shopping: 'Compras / Supermercado',
         health: 'Salud / Médico',
@@ -146,7 +161,11 @@ export const TRANSLATIONS = {
       close: 'Close',
       search: 'Search...',
       all: 'All',
-      confirmDelete: 'Do you want to delete this item?'
+      confirmDelete: 'Do you want to delete this item?',
+      undo: 'Undo',
+      itemDeleted: 'Item deleted',
+      updateAvailable: 'A new version is available',
+      updateNow: 'Update'
     },
     home: {
       greeting: 'Hello, good day',
@@ -176,7 +195,14 @@ export const TRANSLATIONS = {
       notificationsLabel: 'Reminder Notifications',
       notificationsBtn: 'Enable Alarm Permissions',
       notificationsGranted: 'Alarms enabled on this device',
-      notificationsDenied: 'Permission blocked in browser'
+      notificationsDenied: 'Permission blocked in browser',
+      backupLabel: 'Data Backup',
+      exportBackup: 'Export backup (JSON)',
+      importBackup: 'Import backup',
+      backupExported: 'Backup downloaded',
+      backupImported: 'Data restored successfully',
+      backupError: 'Invalid backup file',
+      iosTip: 'On iPhone, tap Share and "Add to Home Screen" to keep your data safe.'
     },
     market: {
       title: 'Grocery List',
@@ -233,6 +259,10 @@ export const TRANSLATIONS = {
       completed: 'Completed',
       markDone: 'Done',
       dueAlertTitle: 'Reminder',
+      exportCalendar: 'Calendar (.ics)',
+      calendarExported: 'Calendar event downloaded',
+      openAppNotice: 'Web alerts ring while the app is open. For alarms while the phone is locked, add to Calendar (.ics).',
+      confirmDeleteMessage: 'Do you want to delete this reminder?',
       categories: {
         shopping: 'Shopping / Grocery',
         health: 'Health / Doctor',

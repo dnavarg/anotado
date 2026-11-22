@@ -5,8 +5,8 @@
 
 import { createId, deleteByIndex, deleteRecord, getAll, getById, getByIndex, putRecord } from '../core/db.js';
 import { t } from '../core/i18n.js';
-import { CURRENCIES, formatMoney, getDefaultCurrency, parseNumericInput } from '../core/currency.js';
-import { closeModal, escapeHtml, openModal, showToast } from '../core/ui.js';
+import { CURRENCIES, formatMoney, getDefaultCurrency, parseNumericInput, parseQuantityInput } from '../core/currency.js';
+import { closeModal, confirmModal, escapeHtml, openModal, showToast } from '../core/ui.js';
 
 const CATEGORY_KEYS = ['Abarrotes', 'Lácteos', 'Carnes', 'Verduras', 'Panadería', 'Limpieza', 'Perfumería', 'Otros'];
 
@@ -118,11 +118,12 @@ function openListModal(existingList, onSaved) {
     const title = document.getElementById('list-title').value.trim();
     if (!title) return;
 
+    const currency = document.getElementById('list-currency').value;
     const record = {
       id: existingList?.id || createId(),
       title,
-      currency: document.getElementById('list-currency').value,
-      budgetLimit: parseNumericInput(document.getElementById('list-budget').value),
+      currency,
+      budgetLimit: parseNumericInput(document.getElementById('list-budget').value, currency),
       isArchived: existingList?.isArchived || false,
       createdAt: existingList?.createdAt || Date.now()
     };
@@ -199,8 +200,8 @@ async function openProductModal(list, existingItem, onSaved) {
   const suggestionBox = document.getElementById('price-suggestion-box');
 
   function refreshSubtotal() {
-    const q = parseNumericInput(qtyInput.value);
-    const p = parseNumericInput(priceInput.value);
+    const q = parseQuantityInput(qtyInput.value);
+    const p = parseNumericInput(priceInput.value, list.currency);
     liveSub.textContent = formatMoney(q * p, list.currency);
   }
 
@@ -235,8 +236,8 @@ async function openProductModal(list, existingItem, onSaved) {
     const name = nameInput.value.trim();
     if (!name) return;
 
-    const quantity = parseNumericInput(qtyInput.value) || 1;
-    const unitPrice = parseNumericInput(priceInput.value);
+    const quantity = parseQuantityInput(qtyInput.value) || 1;
+    const unitPrice = parseNumericInput(priceInput.value, list.currency);
     const category = catSelect.value;
 
     const record = {
@@ -379,10 +380,10 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
 
                 <div class="product-actions">
                   <div class="price-tag">${escapeHtml(formatMoney(subtotal, activeList.currency))}</div>
-                  <div style="display: flex; gap: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
                     <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px;" data-qty-minus="${escapeHtml(item.id)}">-</button>
                     <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px;" data-qty-plus="${escapeHtml(item.id)}">+</button>
-                    <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px; color: var(--danger);" data-del-prod="${escapeHtml(item.id)}">✕</button>
+                    <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px; margin-left: 10px; color: var(--danger);" data-del-prod="${escapeHtml(item.id)}">✕</button>
                   </div>
                 </div>
               </div>
@@ -453,6 +454,13 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
   const delListBtn = document.getElementById('btn-del-list');
   if (delListBtn) {
     delListBtn.addEventListener('click', async () => {
+      const confirmed = await confirmModal({
+        title: t('app.delete'),
+        message: t('app.confirmDelete'),
+        confirmLabel: t('app.delete'),
+        cancelLabel: t('app.cancel')
+      });
+      if (!confirmed) return;
       await deleteByIndex('products', 'listId', activeList.id);
       await deleteRecord('shopping_lists', activeList.id);
       activeListId = null;
@@ -527,8 +535,19 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
 
   container.querySelectorAll('[data-del-prod]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await deleteRecord('products', btn.getAttribute('data-del-prod'));
+      const id = btn.getAttribute('data-del-prod');
+      const deletedCopy = allItems.find((it) => it.id === id);
+      if (!deletedCopy) return;
+      await deleteRecord('products', id);
       rerender();
+      showToast(`${t('app.itemDeleted')}: ${deletedCopy.name}`, {
+        durationMs: 5000,
+        actionLabel: t('app.undo'),
+        onAction: async () => {
+          await putRecord('products', deletedCopy);
+          rerender();
+        }
+      });
     });
   });
 }

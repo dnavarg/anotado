@@ -6,7 +6,7 @@
 import { createId, deleteRecord, getAll, getById, putRecord } from '../core/db.js';
 import { t, getLanguage } from '../core/i18n.js';
 import { formatMoney, getDefaultCurrency, parseNumericInput } from '../core/currency.js';
-import { closeModal, escapeHtml, openModal, showToast } from '../core/ui.js';
+import { closeModal, confirmModal, escapeHtml, openModal, showToast } from '../core/ui.js';
 
 const CATEGORY_META = {
   shopping: { icon: '🛒', badgeClass: 'badge-green' },
@@ -108,11 +108,12 @@ export async function openReminderModal({ reminder = null, prefillTitle = '', li
 
     // Si es categoría compras y el usuario activó armar lista
     if (category === 'shopping' && !linkedShoppingListId && linkCheck.checked) {
-      const budgetLimit = parseNumericInput(document.getElementById('rem-budget').value);
+      const currency = getDefaultCurrency();
+      const budgetLimit = parseNumericInput(document.getElementById('rem-budget').value, currency);
       const newList = {
         id: createId(),
         title,
-        currency: getDefaultCurrency(),
+        currency,
         budgetLimit,
         targetDate: scheduledTime,
         isArchived: false,
@@ -150,6 +151,59 @@ export async function openReminderModal({ reminder = null, prefillTitle = '', li
   });
 }
 
+function formatIcsUtc(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+
+function escapeIcsText(str) {
+  return String(str ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
+/**
+ * Genera y descarga un evento .ics para que la alarma nativa del celular suene incluso con la app cerrada.
+ */
+export function exportReminderToIcs(reminder) {
+  const start = formatIcsUtc(reminder.scheduledTime);
+  const end = formatIcsUtc(reminder.scheduledTime + 30 * 60 * 1000);
+  const stamp = formatIcsUtc(Date.now());
+  const desc = reminder.linkedShoppingListId
+    ? `${t('reminders.linkedBadge')} - Anotado`
+    : `${t('reminders.categories.' + reminder.category)} - Anotado`;
+
+  const icsLines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Anotado//PWA//ES',
+    'BEGIN:VEVENT',
+    `UID:${reminder.id}@anotado`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${start}`,
+    `DTEND:${end}`,
+    `SUMMARY:${escapeIcsText(reminder.title)}`,
+    `DESCRIPTION:${escapeIcsText(desc)}`,
+    'BEGIN:VALARM',
+    'TRIGGER:-PT10M',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${escapeIcsText(reminder.title)}`,
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ];
+
+  const blob = new Blob([icsLines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `anotado-${reminder.id.slice(0, 8)}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast(t('reminders.calendarExported'));
+}
+
 /**
  * Renderiza la vista de Recordatorios.
  */
@@ -177,6 +231,10 @@ export async function renderReminders(container, { navigate }) {
         <button type="button" id="btn-new-reminder" class="btn btn-blue">
           + ${escapeHtml(t('reminders.newReminder'))}
         </button>
+      </div>
+
+      <div class="card" style="margin-bottom: 14px; background-color: var(--blue-soft); color: var(--blue-soft-text); border-color: var(--blue); font-size: 0.88rem; font-weight: 600;">
+        ℹ️ ${escapeHtml(t('reminders.openAppNotice'))}
       </div>
 
       ${sorted.length === 0 ? `
@@ -225,6 +283,9 @@ export async function renderReminders(container, { navigate }) {
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                   <button type="button" class="btn btn-sm btn-ghost" data-toggle-done="${escapeHtml(r.id)}">
                     ${r.isCompleted ? '↩️' : '✓'} ${escapeHtml(r.isCompleted ? t('reminders.completed') : t('reminders.markDone'))}
+                  </button>
+                  <button type="button" class="btn btn-sm btn-ghost" data-ics-rem="${escapeHtml(r.id)}">
+                    📅 ${escapeHtml(t('reminders.exportCalendar'))}
                   </button>
                   <button type="button" class="btn btn-sm btn-ghost" data-edit-rem="${escapeHtml(r.id)}">
                     ✏️ ${escapeHtml(t('app.edit'))}
@@ -276,9 +337,23 @@ export async function renderReminders(container, { navigate }) {
     });
   });
 
+  container.querySelectorAll('[data-ics-rem]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = reminders.find((r) => r.id === btn.getAttribute('data-ics-rem'));
+      if (item) exportReminderToIcs(item);
+    });
+  });
+
   container.querySelectorAll('[data-del-rem]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-del-rem');
+      const confirmed = await confirmModal({
+        title: t('app.delete'),
+        message: t('reminders.confirmDeleteMessage'),
+        confirmLabel: t('app.delete'),
+        cancelLabel: t('app.cancel')
+      });
+      if (!confirmed) return;
       await deleteRecord('reminders', id);
       renderReminders(container, { navigate });
     });
@@ -286,7 +361,7 @@ export async function renderReminders(container, { navigate }) {
 }
 
 /**
- * Revisa recordatorios vencidos y dispara notificación local si aplica.
+ * Revisa recordatorios vencidos y dispara notificación local vía Service Worker (compatible con Android Chrome).
  */
 export async function checkDueReminders(onOpenLinkedList) {
   const reminders = await getAll('reminders');
@@ -300,11 +375,22 @@ export async function checkDueReminders(onOpenLinkedList) {
       showToast(`⏰ ${t('reminders.dueAlertTitle')}: ${r.title}`, 5000);
 
       if ('Notification' in window && Notification.permission === 'granted') {
+        const bodyText = r.linkedShoppingListId ? t('reminders.linkedBadge') : t('reminders.categories.' + r.category);
+        const notifOptions = {
+          body: bodyText,
+          icon: './assets/icon.svg',
+          data: { listId: r.linkedShoppingListId || null }
+        };
+
         try {
-          const notif = new Notification(`Anotado: ${r.title}`, {
-            body: r.linkedShoppingListId ? t('reminders.linkedBadge') : t('reminders.categories.' + r.category),
-            icon: './assets/icon.svg'
-          });
+          if ('serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg && typeof reg.showNotification === 'function') {
+              await reg.showNotification(`Anotado: ${r.title}`, notifOptions);
+              continue;
+            }
+          }
+          const notif = new Notification(`Anotado: ${r.title}`, notifOptions);
           notif.onclick = () => {
             window.focus();
             if (r.linkedShoppingListId && typeof onOpenLinkedList === 'function') {
@@ -312,7 +398,7 @@ export async function checkDueReminders(onOpenLinkedList) {
             }
           };
         } catch {
-          // Algunos navegadores móviles requieren ServiceWorkerRegistration.showNotification
+          // El toast en pantalla ya fue mostrado como respaldo
         }
       }
     }

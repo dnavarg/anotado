@@ -139,3 +139,47 @@ export async function deleteByIndex(storeName, indexName, value) {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+/**
+ * Exporta todas las tablas de IndexedDB en un objeto JSON serializable.
+ */
+export async function exportAllData() {
+  const stores = {};
+  for (const def of STORES) {
+    stores[def.name] = await getAll(def.name);
+  }
+  return {
+    app: 'Anotado',
+    version: DB_VERSION,
+    exportedAt: new Date().toISOString(),
+    stores
+  };
+}
+
+/**
+ * Importa registros desde un respaldo JSON previamente exportado.
+ */
+export async function importAllData(payload) {
+  if (!payload || typeof payload !== 'object' || !payload.stores) {
+    throw new Error('Formato de respaldo inválido');
+  }
+
+  const db = await openDB();
+  const validNames = STORES.map((s) => s.name).filter((name) => Array.isArray(payload.stores[name]));
+  if (validNames.length === 0) {
+    throw new Error('El respaldo no contiene tablas válidas');
+  }
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(validNames, 'readwrite');
+    for (const name of validNames) {
+      const store = tx.objectStore(name);
+      store.clear();
+      for (const record of payload.stores[name]) {
+        store.put(record);
+      }
+    }
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}

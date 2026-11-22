@@ -3,7 +3,7 @@
  * Coordina el router, estado de configuración, menú de navegación y Service Worker.
  */
 
-import { getById, putRecord } from './core/db.js';
+import { exportAllData, getById, importAllData, putRecord } from './core/db.js';
 import { detectBrowserLanguage, getLanguage, setLanguage, t } from './core/i18n.js';
 import { CURRENCIES, getDefaultCurrency, setDefaultCurrency } from './core/currency.js';
 import { applyTheme, getThemeMode, initThemeListener, isDarkActive } from './core/theme.js';
@@ -38,6 +38,9 @@ function openSettingsModal() {
   const lang = getLanguage();
   const curr = getDefaultCurrency();
   const theme = getThemeMode();
+
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
 
   const html = `
     <div class="field">
@@ -81,6 +84,25 @@ function openSettingsModal() {
       `}
     </div>
 
+    <div class="field">
+      <label>${escapeHtml(t('settings.backupLabel'))}</label>
+      <div class="grid-2">
+        <button type="button" id="btn-export-backup" class="btn btn-sm btn-ghost">
+          📤 ${escapeHtml(t('settings.exportBackup'))}
+        </button>
+        <button type="button" id="btn-import-backup" class="btn btn-sm btn-ghost">
+          📥 ${escapeHtml(t('settings.importBackup'))}
+        </button>
+        <input id="input-import-file" type="file" accept="application/json" class="hidden" />
+      </div>
+    </div>
+
+    ${isIos && !isStandalone ? `
+      <div class="card" style="background-color: var(--amber-soft); color: var(--amber-soft-text); border-color: var(--amber); font-size: 0.85rem; font-weight: 600; margin-bottom: 12px;">
+        📱 ${escapeHtml(t('settings.iosTip'))}
+      </div>
+    ` : ''}
+
     <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
       <button type="button" id="set-done" class="btn btn-primary">${escapeHtml(t('app.close'))}</button>
     </div>
@@ -121,6 +143,37 @@ function openSettingsModal() {
       }
     });
   }
+
+  document.getElementById('btn-export-backup').addEventListener('click', async () => {
+    const data = await exportAllData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `anotado-respaldo-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast(t('settings.backupExported'));
+  });
+
+  const importInput = document.getElementById('input-import-file');
+  document.getElementById('btn-import-backup').addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      await importAllData(parsed);
+      showToast(t('settings.backupImported'));
+      closeModal();
+      await loadSettings();
+      await renderApp();
+    } catch {
+      showToast(t('settings.backupError'));
+    }
+  });
 
   document.getElementById('set-done').addEventListener('click', closeModal);
 }
@@ -248,15 +301,53 @@ async function renderApp() {
   }
 }
 
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
+  const promptUpdate = (worker) => {
+    if (!worker) return;
+    showToast(t('app.updateAvailable'), {
+      durationMs: 0,
+      actionLabel: t('app.updateNow'),
+      onAction: () => worker.postMessage({ type: 'SKIP_WAITING' })
+    });
+  };
+
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    if (reg.waiting) {
+      promptUpdate(reg.waiting);
+    }
+    reg.addEventListener('updatefound', () => {
+      const next = reg.installing;
+      if (!next) return;
+      next.addEventListener('statechange', () => {
+        if (next.state === 'installed' && navigator.serviceWorker.controller) {
+          promptUpdate(next);
+        }
+      });
+    });
+  } catch {
+    // Registro SW omitido en contextos no seguros
+  }
+}
+
 async function init() {
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
+
   await loadSettings();
   initThemeListener(() => renderShell());
   await renderApp();
-
-  // Registro del Service Worker para funcionamiento 100% offline
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  }
+  registerServiceWorker();
 
   // Verificación periódica de recordatorios vencidos
   const openLinked = (listId) => navigate('market', { listId });

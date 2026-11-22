@@ -5,7 +5,7 @@
 
 import { createId, deleteRecord, getAll, putRecord } from '../core/db.js';
 import { t } from '../core/i18n.js';
-import { closeModal, escapeHtml, openModal } from '../core/ui.js';
+import { closeModal, confirmModal, escapeHtml, openModal } from '../core/ui.js';
 import { openReminderModal } from './reminders.js';
 
 let searchTerm = '';
@@ -252,6 +252,13 @@ export async function renderNotes(container, { navigate }) {
 
   container.querySelectorAll('[data-del-note]').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      const confirmed = await confirmModal({
+        title: t('app.delete'),
+        message: t('app.confirmDelete'),
+        confirmLabel: t('app.delete'),
+        cancelLabel: t('app.cancel')
+      });
+      if (!confirmed) return;
       await deleteRecord('notes', btn.getAttribute('data-del-note'));
       renderNotes(container, { navigate });
     });
