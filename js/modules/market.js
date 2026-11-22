@@ -17,7 +17,6 @@ const UNIT_STEPS = {
 };
 
 let selectedCategory = 'ALL';
-let activeListId = null;
 
 /**
  * Calcula los totales de una lista usando aritmética entera (centavos) para evitar errores de punto flotante.
@@ -143,9 +142,8 @@ function openListModal(existingList, onSaved) {
     };
 
     await putRecord('shopping_lists', record);
-    activeListId = record.id;
     closeModal();
-    onSaved();
+    onSaved(record);
   });
 }
 
@@ -309,41 +307,169 @@ async function openProductModal(list, existingItem, onSaved) {
   });
 }
 
-/**
- * Renderiza la pantalla completa de Supermercado y la barra de totales fija inferior.
- */
-export async function renderMarket(container, stickyBar, { params = {} } = {}) {
-  let lists = await getAll('shopping_lists');
+async function deleteShoppingList(listId) {
+  const allReminders = await getAll('reminders');
+  for (const rem of allReminders) {
+    if (rem.linkedShoppingListId === listId) {
+      rem.linkedShoppingListId = null;
+      await putRecord('reminders', rem);
+    }
+  }
+  await deleteByIndex('products', 'listId', listId);
+  await deleteRecord('shopping_lists', listId);
+}
 
-  // Si no hay ninguna lista todavía, crear una lista inicial por defecto
-  if (lists.length === 0) {
-    const defaultList = {
-      id: createId(),
-      title: t('market.title'),
-      currency: getDefaultCurrency(),
-      budgetLimit: 40000,
-      isArchived: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    };
-    await putRecord('shopping_lists', defaultList);
-    lists = [defaultList];
+/**
+ * Pantalla intermedia: Administrador de Listas de Compras (CRUD completo de listas).
+ */
+async function renderListsManager(container, stickyBar, { navigate }) {
+  stickyBar.classList.add('hidden');
+  stickyBar.innerHTML = '';
+
+  const [lists, allProducts] = await Promise.all([
+    getAll('shopping_lists'),
+    getAll('products')
+  ]);
+
+  const sorted = [...lists].sort((a, b) => {
+    if (Boolean(a.isArchived) !== Boolean(b.isArchived)) return a.isArchived ? 1 : -1;
+    return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+  });
+
+  const productsByList = new Map();
+  for (const p of allProducts) {
+    if (!productsByList.has(p.listId)) productsByList.set(p.listId, []);
+    productsByList.get(p.listId).push(p);
   }
 
+  container.innerHTML = `
+    <section>
+      <div class="toolbar">
+        <div>
+          <h2 style="margin: 0; font-size: 1.4rem; font-weight: 900;">🛒 ${escapeHtml(t('market.myLists'))}</h2>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(t('market.myListsSubtitle'))}</span>
+        </div>
+        <button type="button" id="btn-mgr-new-list" class="btn btn-primary">
+          + ${escapeHtml(t('market.newList'))}
+        </button>
+      </div>
+
+      ${sorted.length === 0 ? `
+        <div class="empty-state">
+          <div style="font-size: 2.2rem; margin-bottom: 8px;">🛒</div>
+          <p style="margin: 0; font-weight: 600;">${escapeHtml(t('market.emptyListsManager'))}</p>
+        </div>
+      ` : `
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          ${sorted.map((list) => {
+            const items = productsByList.get(list.id) || [];
+            const totals = calculateListTotals(items, list.budgetLimit, list.currency);
+            return `
+              <article class="card" style="${list.isArchived ? 'opacity: 0.72;' : ''}">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="badge badge-green" style="font-family: monospace;">${escapeHtml(list.currency)}</span>
+                    ${list.isArchived ? `<span class="badge badge-amber">📦 ${escapeHtml(t('market.archivedBadge'))}</span>` : ''}
+                  </div>
+                  <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">
+                    ${items.length} ${escapeHtml(t('home.itemsOnList'))}
+                  </span>
+                </div>
+
+                <h3 style="margin: 10px 0 6px; font-size: 1.15rem; font-weight: 800;">
+                  ${escapeHtml(list.title)}
+                </h3>
+
+                <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.9rem; margin-bottom: 14px;">
+                  <span>
+                    <span style="color: var(--text-muted);">${escapeHtml(t('market.totalProjected'))}:</span>
+                    <strong class="mono-num" style="color: var(--primary);">${escapeHtml(formatMoney(totals.totalEstimated, list.currency))}</strong>
+                  </span>
+                  ${totals.hasBudget ? `
+                    <span>
+                      <span style="color: var(--text-muted);">${escapeHtml(t('market.budgetLabel'))}:</span>
+                      <strong class="mono-num">${escapeHtml(formatMoney(list.budgetLimit, list.currency))}</strong>
+                    </span>
+                  ` : ''}
+                </div>
+
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center;">
+                  <button type="button" class="btn btn-sm btn-primary" data-open-market-list="${escapeHtml(list.id)}">
+                    ${escapeHtml(t('market.openList'))} ➔
+                  </button>
+                  <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn btn-sm btn-ghost" data-edit-market-list="${escapeHtml(list.id)}">
+                      ✏️ ${escapeHtml(t('app.edit'))}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-ghost" data-del-market-list="${escapeHtml(list.id)}" style="color: var(--danger);">
+                      🗑️ ${escapeHtml(t('app.delete'))}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </section>
+  `;
+
+  document.getElementById('btn-mgr-new-list').addEventListener('click', () => {
+    openListModal(null, (created) => {
+      navigate('market', { listId: created.id });
+    });
+  });
+
+  container.querySelectorAll('[data-open-market-list]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      navigate('market', { listId: btn.getAttribute('data-open-market-list') });
+    });
+  });
+
+  container.querySelectorAll('[data-edit-market-list]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const list = lists.find((l) => l.id === btn.getAttribute('data-edit-market-list'));
+      if (list) openListModal(list, () => renderListsManager(container, stickyBar, { navigate }));
+    });
+  });
+
+  container.querySelectorAll('[data-del-market-list]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-del-market-list');
+      const confirmed = await confirmModal({
+        title: t('app.delete'),
+        message: t('market.confirmDeleteList'),
+        confirmLabel: t('app.delete'),
+        cancelLabel: t('app.cancel')
+      });
+      if (!confirmed) return;
+      await deleteShoppingList(id);
+      renderListsManager(container, stickyBar, { navigate });
+    });
+  });
+}
+
+/**
+ * Renderiza el Administrador de Listas (si no hay listId) o el Modo Góndola de una lista específica.
+ */
+export async function renderMarket(container, stickyBar, { navigate, params = {} } = {}) {
+  if (!params.listId) {
+    await renderListsManager(container, stickyBar, { navigate });
+    return;
+  }
+
+  let lists = await getAll('shopping_lists');
   lists.sort((a, b) => {
     if (Boolean(a.isArchived) !== Boolean(b.isArchived)) return a.isArchived ? 1 : -1;
     return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
   });
 
-  if (params.listId && lists.some((l) => l.id === params.listId)) {
-    activeListId = params.listId;
-  } else if (!activeListId || !lists.some((l) => l.id === activeListId)) {
-    const prefs = await getById('settings', 'user_prefs');
-    const remembered = prefs?.lastOpenedListId && lists.find((l) => l.id === prefs.lastOpenedListId);
-    activeListId = remembered ? remembered.id : lists[0].id;
+  const activeList = lists.find((l) => l.id === params.listId);
+  if (!activeList) {
+    await renderListsManager(container, stickyBar, { navigate });
+    return;
   }
 
-  const activeList = lists.find((l) => l.id === activeListId) || lists[0];
   const existingPrefs = (await getById('settings', 'user_prefs')) || { id: 'user_prefs' };
   if (existingPrefs.lastOpenedListId !== activeList.id) {
     await putRecord('settings', { ...existingPrefs, id: 'user_prefs', lastOpenedListId: activeList.id });
@@ -366,7 +492,10 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
     <section>
       <!-- Selector de Lista y Acciones -->
       <div class="toolbar">
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 240px;">
+          <button type="button" id="btn-back-to-lists" class="btn btn-sm btn-ghost">
+            ◀ ${escapeHtml(t('market.backToLists'))}
+          </button>
           <select id="active-list-select" class="select" aria-label="${escapeHtml(t('market.title'))}" style="font-weight: 800;">
             ${lists.map((l) => `
               <option value="${escapeHtml(l.id)}" ${l.id === activeList.id ? 'selected' : ''}>
@@ -375,7 +504,7 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
             `).join('')}
           </select>
           <button type="button" id="btn-edit-list" class="btn-icon" title="${escapeHtml(t('app.edit'))}">✏️</button>
-          ${lists.length > 1 ? `<button type="button" id="btn-del-list" class="btn-icon" title="${escapeHtml(t('app.delete'))}" style="color: var(--danger);">🗑️</button>` : ''}
+          <button type="button" id="btn-del-list" class="btn-icon" title="${escapeHtml(t('app.delete'))}" style="color: var(--danger);">🗑️</button>
         </div>
 
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -491,45 +620,41 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
   `;
 
   // Event Listeners
-  const rerender = () => renderMarket(container, stickyBar, { params: { listId: activeList.id } });
+  const rerender = () => renderMarket(container, stickyBar, { navigate, params: { listId: activeList.id } });
+
+  document.getElementById('btn-back-to-lists').addEventListener('click', () => {
+    selectedCategory = 'ALL';
+    navigate('market');
+  });
 
   document.getElementById('active-list-select').addEventListener('change', (e) => {
-    activeListId = e.target.value;
     selectedCategory = 'ALL';
-    rerender();
+    navigate('market', { listId: e.target.value });
   });
 
   document.getElementById('btn-new-list').addEventListener('click', () => {
-    openListModal(null, rerender);
+    openListModal(null, (created) => {
+      selectedCategory = 'ALL';
+      navigate('market', { listId: created.id });
+    });
   });
 
   document.getElementById('btn-edit-list').addEventListener('click', () => {
     openListModal(activeList, rerender);
   });
 
-  const delListBtn = document.getElementById('btn-del-list');
-  if (delListBtn) {
-    delListBtn.addEventListener('click', async () => {
-      const confirmed = await confirmModal({
-        title: t('app.delete'),
-        message: t('app.confirmDelete'),
-        confirmLabel: t('app.delete'),
-        cancelLabel: t('app.cancel')
-      });
-      if (!confirmed) return;
-      const allReminders = await getAll('reminders');
-      for (const rem of allReminders) {
-        if (rem.linkedShoppingListId === activeList.id) {
-          rem.linkedShoppingListId = null;
-          await putRecord('reminders', rem);
-        }
-      }
-      await deleteByIndex('products', 'listId', activeList.id);
-      await deleteRecord('shopping_lists', activeList.id);
-      activeListId = null;
-      rerender();
+  document.getElementById('btn-del-list').addEventListener('click', async () => {
+    const confirmed = await confirmModal({
+      title: t('app.delete'),
+      message: t('market.confirmDeleteList'),
+      confirmLabel: t('app.delete'),
+      cancelLabel: t('app.cancel')
     });
-  }
+    if (!confirmed) return;
+    await deleteShoppingList(activeList.id);
+    selectedCategory = 'ALL';
+    navigate('market');
+  });
 
   const clearCartBtn = document.getElementById('btn-clear-cart');
   if (clearCartBtn) {

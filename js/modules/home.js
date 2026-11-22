@@ -118,7 +118,7 @@ export async function renderHome(container, { navigate }) {
   container.querySelectorAll('[data-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const target = btn.getAttribute('data-nav');
-      navigate(target, activeList && target === 'market' ? { listId: activeList.id } : {});
+      navigate(target);
     });
   });
 }
