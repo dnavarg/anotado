@@ -3,7 +3,7 @@
  * Interfaz despejada con tarjetas grandes y accesibles para público adulto.
  */
 
-import { getAll, getByIndex } from '../core/db.js';
+import { getAll, getById, getByIndex } from '../core/db.js';
 import { t, getLanguage } from '../core/i18n.js';
 import { formatMoney, getDefaultCurrency } from '../core/currency.js';
 import { escapeHtml } from '../core/ui.js';
@@ -12,13 +12,19 @@ import { escapeHtml } from '../core/ui.js';
  * Renderiza la pantalla principal en el contenedor dado.
  */
 export async function renderHome(container, { navigate }) {
-  const [lists, reminders, notes] = await Promise.all([
+  const [lists, reminders, notes, prefs] = await Promise.all([
     getAll('shopping_lists'),
     getAll('reminders'),
-    getAll('notes')
+    getAll('notes'),
+    getById('settings', 'user_prefs')
   ]);
 
-  const activeList = lists.find((l) => !l.isArchived) || lists[0] || null;
+  const sortedLists = [...lists].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  const activeList =
+    sortedLists.find((l) => l.id === prefs?.lastOpenedListId && !l.isArchived) ||
+    sortedLists.find((l) => !l.isArchived) ||
+    sortedLists[0] ||
+    null;
   let activeItems = [];
   if (activeList) {
     activeItems = await getByIndex('products', 'listId', activeList.id);

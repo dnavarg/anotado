@@ -3,6 +3,7 @@
  */
 
 let lastFocusedElement = null;
+let activeEscHandler = null;
 
 export function escapeHtml(str) {
   return String(str ?? '')
@@ -78,6 +79,19 @@ export function openModal(title, bodyHtml) {
   root.onclick = (e) => {
     if (e.target === root) closeModal();
   };
+
+  if (activeEscHandler) {
+    document.removeEventListener('keydown', activeEscHandler);
+  }
+  activeEscHandler = (e) => {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', activeEscHandler);
+
+  const firstFocusable = root.querySelector('input, select, textarea, button');
+  if (firstFocusable && typeof firstFocusable.focus === 'function') {
+    firstFocusable.focus();
+  }
 }
 
 export function closeModal() {
@@ -85,6 +99,10 @@ export function closeModal() {
   if (!root) return;
   root.classList.add('hidden');
   root.innerHTML = '';
+  if (activeEscHandler) {
+    document.removeEventListener('keydown', activeEscHandler);
+    activeEscHandler = null;
+  }
   if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
     lastFocusedElement.focus();
     lastFocusedElement = null;

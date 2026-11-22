@@ -86,6 +86,11 @@ export const TRANSLATIONS = {
       emptyList: 'Tu lista está vacía. Toca "Agregar Producto" para comenzar.',
       priceSuggestion: 'Último precio registrado:',
       clearCart: 'Vaciar marcados',
+      finishShopping: 'Finalizar compra',
+      reopenList: 'Reabrir lista',
+      archivedBadge: 'Archivada',
+      listArchived: 'Compra finalizada y archivada',
+      cartCleared: 'Productos marcados eliminados',
       pendingCount: 'pendientes',
       pickedCount: 'en el carro',
       categories: {
@@ -120,6 +125,7 @@ export const TRANSLATIONS = {
       calendarExported: 'Evento descargado para tu calendario',
       openAppNotice: 'Las alertas web suenan con la app abierta. Para que suenen con el teléfono bloqueado, agrégalo a tu Calendario (.ics).',
       confirmDeleteMessage: '¿Deseas eliminar este recordatorio?',
+      unlinkListConfirm: 'Al cambiar la categoría, ¿deseas desvincular la lista de compras?',
       categories: {
         shopping: 'Compras / Supermercado',
         health: 'Salud / Médico',
@@ -229,6 +235,11 @@ export const TRANSLATIONS = {
       emptyList: 'Your list is empty. Tap "Add Product" to start.',
       priceSuggestion: 'Last recorded price:',
       clearCart: 'Clear checked',
+      finishShopping: 'Finish shopping',
+      reopenList: 'Reopen list',
+      archivedBadge: 'Archived',
+      listArchived: 'Shopping finished and archived',
+      cartCleared: 'Checked items removed',
       pendingCount: 'pending',
       pickedCount: 'in cart',
       categories: {
@@ -263,6 +274,7 @@ export const TRANSLATIONS = {
       calendarExported: 'Calendar event downloaded',
       openAppNotice: 'Web alerts ring while the app is open. For alarms while the phone is locked, add to Calendar (.ics).',
       confirmDeleteMessage: 'Do you want to delete this reminder?',
+      unlinkListConfirm: 'Changing category will unlink the attached grocery list. Continue?',
       categories: {
         shopping: 'Shopping / Grocery',
         health: 'Health / Doctor',

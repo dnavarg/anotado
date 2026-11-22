@@ -1,0 +1,41 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright Chromium
+        run: npx --yes playwright install chromium
+      - name: Run module-tests.html in Chromium
+        run: |
+          python3 -m http.server 4173 &
+          SERVER_PID=$!
+          sleep 1
+          node -e "
+            const { chromium } = require('playwright');
+            (async () => {
+              const browser = await chromium.launch();
+              const page = await browser.newPage();
+              await page.goto('http://127.0.0.1:4173/tests/module-tests.html');
+              await page.waitForSelector('.suite h2');
+              const summary = await page.textContent('.suite h2');
+              const fails = await page.$$eval('.fail', els => els.map(e => e.textContent));
+              console.log(summary);
+              await browser.close();
+              if (fails.length > 0) {
+                console.error('Failures:', fails);
+                process.exit(1);
+              }
+            })();
+          "
+          kill $SERVER_PID

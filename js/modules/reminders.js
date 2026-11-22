@@ -106,6 +106,10 @@ export async function openReminderModal({ reminder = null, prefillTitle = '', li
     const scheduledTime = new Date(dtVal).getTime();
     let linkedShoppingListId = reminder?.linkedShoppingListId || null;
 
+    if (linkedShoppingListId && category !== 'shopping') {
+      linkedShoppingListId = null;
+    }
+
     // Si es categoría compras y el usuario activó armar lista
     if (category === 'shopping' && !linkedShoppingListId && linkCheck.checked) {
       const currency = getDefaultCurrency();
@@ -354,6 +358,14 @@ export async function renderReminders(container, { navigate }) {
         cancelLabel: t('app.cancel')
       });
       if (!confirmed) return;
+      const item = reminders.find((r) => r.id === id);
+      if (item?.linkedNoteId) {
+        const note = await getById('notes', item.linkedNoteId);
+        if (note && note.linkedReminderId === id) {
+          note.linkedReminderId = null;
+          await putRecord('notes', note);
+        }
+      }
       await deleteRecord('reminders', id);
       renderReminders(container, { navigate });
     });

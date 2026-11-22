@@ -301,8 +301,38 @@ async function renderApp() {
   }
 }
 
+function parseHashRoute() {
+  const hash = window.location.hash || '';
+  const match = hash.match(/^#market\/([a-zA-Z0-9-]+)$/);
+  if (match) {
+    return { route: 'market', params: { listId: match[1] } };
+  }
+  return null;
+}
+
+function initStickyBarObserver() {
+  const stickyBar = document.getElementById('sticky-bar');
+  const content = document.getElementById('content');
+  if (!stickyBar || !content || typeof ResizeObserver === 'undefined') return;
+
+  const observer = new ResizeObserver(() => {
+    if (stickyBar.classList.contains('hidden')) {
+      content.style.paddingBottom = '';
+    } else {
+      content.style.paddingBottom = `${stickyBar.offsetHeight + 28}px`;
+    }
+  });
+  observer.observe(stickyBar);
+}
+
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'OPEN_LIST' && event.data.listId) {
+      navigate('market', { listId: event.data.listId });
+    }
+  });
 
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -346,6 +376,19 @@ async function init() {
 
   await loadSettings();
   initThemeListener(() => renderShell());
+  initStickyBarObserver();
+
+  const initialHash = parseHashRoute();
+  if (initialHash) {
+    currentRoute = initialHash.route;
+    currentParams = initialHash.params;
+  }
+
+  window.addEventListener('hashchange', () => {
+    const next = parseHashRoute();
+    if (next) navigate(next.route, next.params);
+  });
+
   await renderApp();
   registerServiceWorker();
 

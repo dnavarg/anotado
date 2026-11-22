@@ -20,8 +20,10 @@
     import { setLanguage, t } from '../js/core/i18n.js';
     import { formatMoney, parseNumericInput, parseQuantityInput } from '../js/core/currency.js';
     import { applyTheme, getThemeMode } from '../js/core/theme.js';
-    import { createId, putRecord, getById, deleteRecord } from '../js/core/db.js';
+    import { setDatabaseName, createId, putRecord, getById, deleteRecord } from '../js/core/db.js';
     import { calculateListTotals, formatListForShare } from '../js/modules/market.js';
+
+    setDatabaseName('AnotadoDB_test');
 
     const results = [];
 

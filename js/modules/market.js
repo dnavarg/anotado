@@ -125,7 +125,8 @@ function openListModal(existingList, onSaved) {
       currency,
       budgetLimit: parseNumericInput(document.getElementById('list-budget').value, currency),
       isArchived: existingList?.isArchived || false,
-      createdAt: existingList?.createdAt || Date.now()
+      createdAt: existingList?.createdAt || Date.now(),
+      updatedAt: Date.now()
     };
 
     await putRecord('shopping_lists', record);
@@ -209,13 +210,20 @@ async function openProductModal(list, existingItem, onSaved) {
   priceInput.addEventListener('input', refreshSubtotal);
 
   nameInput.addEventListener('input', () => {
-    const key = nameInput.value.trim().toLowerCase();
+    const key = `${nameInput.value.trim().toLowerCase()}::${list.currency}`;
     const match = historyMap.get(key);
     if (match && match.lastPrice > 0) {
+      let diffBadge = '';
+      if (match.prevPrice > 0 && match.prevPrice !== match.lastPrice) {
+        const pct = Math.round(((match.lastPrice - match.prevPrice) / match.prevPrice) * 100);
+        if (pct !== 0) {
+          diffBadge = ` (${pct > 0 ? '▲ +' : '▼ '}${pct}%)`;
+        }
+      }
       suggestionBox.classList.remove('hidden');
       suggestionBox.innerHTML = `
         <button type="button" id="apply-suggested-price" class="badge badge-green" style="border: 1px solid var(--primary); cursor: pointer; padding: 6px 10px;">
-          💡 ${escapeHtml(t('market.priceSuggestion'))} ${escapeHtml(formatMoney(match.lastPrice, list.currency))} (Usar)
+          💡 ${escapeHtml(t('market.priceSuggestion'))} ${escapeHtml(formatMoney(match.lastPrice, list.currency))}${escapeHtml(diffBadge)}
         </button>
       `;
       document.getElementById('apply-suggested-price').addEventListener('click', () => {
@@ -253,13 +261,20 @@ async function openProductModal(list, existingItem, onSaved) {
 
     await putRecord('products', record);
 
-    // Guardar en historial de precios si tiene valor
+    // Guardar en historial de precios por moneda si tiene valor
     if (unitPrice > 0) {
+      const historyKey = `${name.toLowerCase()}::${list.currency}`;
+      const existingHistory = historyMap.get(historyKey);
+      const prevPrice = existingHistory && existingHistory.lastPrice !== unitPrice
+        ? existingHistory.lastPrice
+        : (existingHistory?.prevPrice ?? null);
+
       await putRecord('price_history', {
-        nameKey: name.toLowerCase(),
+        nameKey: historyKey,
         name,
         category,
         lastPrice: unitPrice,
+        prevPrice,
         currency: list.currency,
         updatedAt: Date.now()
       });
@@ -284,19 +299,31 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
       currency: getDefaultCurrency(),
       budgetLimit: 40000,
       isArchived: false,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
     await putRecord('shopping_lists', defaultList);
     lists = [defaultList];
   }
 
+  lists.sort((a, b) => {
+    if (Boolean(a.isArchived) !== Boolean(b.isArchived)) return a.isArchived ? 1 : -1;
+    return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+  });
+
   if (params.listId && lists.some((l) => l.id === params.listId)) {
     activeListId = params.listId;
   } else if (!activeListId || !lists.some((l) => l.id === activeListId)) {
-    activeListId = lists[0].id;
+    const prefs = await getById('settings', 'user_prefs');
+    const remembered = prefs?.lastOpenedListId && lists.find((l) => l.id === prefs.lastOpenedListId);
+    activeListId = remembered ? remembered.id : lists[0].id;
   }
 
   const activeList = lists.find((l) => l.id === activeListId) || lists[0];
+  const existingPrefs = (await getById('settings', 'user_prefs')) || { id: 'user_prefs' };
+  if (existingPrefs.lastOpenedListId !== activeList.id) {
+    await putRecord('settings', { ...existingPrefs, id: 'user_prefs', lastOpenedListId: activeList.id });
+  }
   const allItems = await getByIndex('products', 'listId', activeList.id);
 
   // Ordenar: pendientes primero, en el carro al final
@@ -319,7 +346,7 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
           <select id="active-list-select" class="select" aria-label="${escapeHtml(t('market.title'))}" style="font-weight: 800;">
             ${lists.map((l) => `
               <option value="${escapeHtml(l.id)}" ${l.id === activeList.id ? 'selected' : ''}>
-                🛒 ${escapeHtml(l.title)} (${escapeHtml(l.currency)})
+                ${l.isArchived ? '📦' : '🛒'} ${escapeHtml(l.title)} (${escapeHtml(l.currency)})${l.isArchived ? ` [${escapeHtml(t('market.archivedBadge'))}]` : ''}
               </option>
             `).join('')}
           </select>
@@ -330,6 +357,10 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button type="button" id="btn-new-list" class="btn btn-sm btn-ghost">+ ${escapeHtml(t('market.newList'))}</button>
           <button type="button" id="btn-share-list" class="btn btn-sm btn-ghost">💬 ${escapeHtml(t('market.shareBtn'))}</button>
+          ${totals.inCartCount > 0 ? `<button type="button" id="btn-clear-cart" class="btn btn-sm btn-ghost">🧹 ${escapeHtml(t('market.clearCart'))}</button>` : ''}
+          <button type="button" id="btn-archive-list" class="btn btn-sm btn-ghost">
+            ${activeList.isArchived ? `↩️ ${escapeHtml(t('market.reopenList'))}` : `✓ ${escapeHtml(t('market.finishShopping'))}`}
+          </button>
           <button type="button" id="btn-add-product" class="btn btn-sm btn-primary">+ ${escapeHtml(t('market.addItem'))}</button>
         </div>
       </div>
@@ -364,15 +395,16 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
               <div class="product-row ${item.inCart ? 'in-cart' : ''}">
                 <button type="button" class="check-circle ${item.inCart ? 'checked' : ''}"
                   data-toggle-cart="${escapeHtml(item.id)}"
+                  aria-pressed="${item.inCart ? 'true' : 'false'}"
                   aria-label="${escapeHtml(item.name)}">
                   ${item.inCart ? '✓' : ''}
                 </button>
 
-                <div class="product-info" data-edit-prod="${escapeHtml(item.id)}" style="cursor: pointer;">
+                <div class="product-info" role="button" tabindex="0" data-edit-prod="${escapeHtml(item.id)}" style="cursor: pointer;">
                   <div class="product-name">${escapeHtml(item.name)}</div>
                   <div class="product-sub">
                     <span>${escapeHtml(item.quantity)} × ${escapeHtml(formatMoney(item.unitPrice, activeList.currency))}</span>
-                    <span class="badge badge-green" style="font-size: 0.7rem; padding: 2px 7px;">
+                    <span class="badge badge-green" style="font-size: 0.75rem; padding: 2px 8px;">
                       ${escapeHtml(t('market.categories.' + (item.category || 'Otros')))}
                     </span>
                   </div>
@@ -381,9 +413,9 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
                 <div class="product-actions">
                   <div class="price-tag">${escapeHtml(formatMoney(subtotal, activeList.currency))}</div>
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px;" data-qty-minus="${escapeHtml(item.id)}">-</button>
-                    <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px;" data-qty-plus="${escapeHtml(item.id)}">+</button>
-                    <button type="button" class="btn btn-sm btn-ghost" style="min-height: 30px; padding: 2px 8px; margin-left: 10px; color: var(--danger);" data-del-prod="${escapeHtml(item.id)}">✕</button>
+                    <button type="button" class="btn btn-sm btn-ghost btn-touch" data-qty-minus="${escapeHtml(item.id)}" aria-label="-">-</button>
+                    <button type="button" class="btn btn-sm btn-ghost btn-touch" data-qty-plus="${escapeHtml(item.id)}" aria-label="+">+</button>
+                    <button type="button" class="btn btn-sm btn-ghost btn-touch" style="margin-left: 8px; color: var(--danger);" data-del-prod="${escapeHtml(item.id)}" aria-label="${escapeHtml(t('app.delete'))}">✕</button>
                   </div>
                 </div>
               </div>
@@ -461,12 +493,42 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
         cancelLabel: t('app.cancel')
       });
       if (!confirmed) return;
+      const allReminders = await getAll('reminders');
+      for (const rem of allReminders) {
+        if (rem.linkedShoppingListId === activeList.id) {
+          rem.linkedShoppingListId = null;
+          await putRecord('reminders', rem);
+        }
+      }
       await deleteByIndex('products', 'listId', activeList.id);
       await deleteRecord('shopping_lists', activeList.id);
       activeListId = null;
       rerender();
     });
   }
+
+  const clearCartBtn = document.getElementById('btn-clear-cart');
+  if (clearCartBtn) {
+    clearCartBtn.addEventListener('click', async () => {
+      const checkedItems = allItems.filter((it) => it.inCart);
+      if (checkedItems.length === 0) return;
+      for (const it of checkedItems) {
+        await deleteRecord('products', it.id);
+      }
+      showToast(t('market.cartCleared'));
+      rerender();
+    });
+  }
+
+  document.getElementById('btn-archive-list').addEventListener('click', async () => {
+    activeList.isArchived = !activeList.isArchived;
+    activeList.updatedAt = Date.now();
+    await putRecord('shopping_lists', activeList);
+    if (activeList.isArchived) {
+      showToast(t('market.listArchived'));
+    }
+    rerender();
+  });
 
   document.getElementById('btn-add-product').addEventListener('click', () => {
     openProductModal(activeList, null, rerender);
@@ -507,9 +569,16 @@ export async function renderMarket(container, stickyBar, { params = {} } = {}) {
   });
 
   container.querySelectorAll('[data-edit-prod]').forEach((el) => {
-    el.addEventListener('click', () => {
+    const openEdit = () => {
       const item = allItems.find((it) => it.id === el.getAttribute('data-edit-prod'));
       if (item) openProductModal(activeList, item, rerender);
+    };
+    el.addEventListener('click', openEdit);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openEdit();
+      }
     });
   });
 

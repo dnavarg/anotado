@@ -3,7 +3,7 @@
  * Almacena configuraciones, recordatorios, listas de compras, productos, notas e historial de precios.
  */
 
-const DB_NAME = 'AnotadoDB';
+let dbName = 'AnotadoDB';
 const DB_VERSION = 1;
 const STORES = [
   { name: 'settings', keyPath: 'id' },
@@ -17,6 +17,17 @@ const STORES = [
 let dbPromise = null;
 
 /**
+ * Permite cambiar el nombre de la base de datos (ej. para aislar pruebas).
+ * @param {string} name
+ */
+export function setDatabaseName(name) {
+  if (name && name !== dbName) {
+    dbName = name;
+    dbPromise = null;
+  }
+}
+
+/**
  * Abre o inicializa la base de datos IndexedDB.
  * @returns {Promise<IDBDatabase>}
  */
@@ -24,7 +35,7 @@ export function openDB() {
   if (dbPromise) return dbPromise;
 
   dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(dbName, DB_VERSION);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anotado-v1.1.0';
+const CACHE_NAME = 'anotado-v1.2.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -6,6 +6,10 @@ const ASSETS_TO_CACHE = [
   './css/styles.css',
   './assets/icon.svg',
   './assets/icon-maskable.svg',
+  './assets/icon-180.png',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/icon-512-maskable.png',
   './js/app.js',
   './js/core/db.js',
   './js/core/i18n.js',
@@ -68,12 +72,20 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const listId = event.notification.data && event.notification.data.listId;
+  const targetUrl = listId ? `./index.html#market/${listId}` : './index.html';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if ('focus' in client) {
+          if (listId) {
+            client.postMessage({ type: 'OPEN_LIST', listId });
+          }
+          return client.focus();
+        }
       }
-      if (clients.openWindow) return clients.openWindow('./index.html');
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });
