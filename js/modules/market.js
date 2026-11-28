@@ -84,6 +84,185 @@ export function formatListForShare(list, items) {
   return lines.join('\n');
 }
 
+/**
+ * Construye el objeto JSON estándar para exportar una lista individual.
+ */
+export function buildListExportPayload(list, items) {
+  return {
+    app: 'Anotado',
+    type: 'shopping_list',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    list: {
+      title: list.title,
+      currency: CURRENCIES[list.currency] ? list.currency : getDefaultCurrency(),
+      budgetLimit: Number(list.budgetLimit) || 0
+    },
+    items: (items || []).map((it) => ({
+      name: String(it.name || '').trim(),
+      category: CATEGORY_KEYS.includes(it.category) ? it.category : 'Otros',
+      quantity: Number(it.quantity) || 1,
+      unit: UNIT_STEPS[it.unit] ? it.unit : 'un',
+      unitPrice: Number(it.unitPrice) || 0,
+      inCart: Boolean(it.inCart)
+    }))
+  };
+}
+
+function toBase64UrlUtf8(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64UrlUtf8(token) {
+  const padded = token.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((token.length + 3) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Codifica una lista y sus productos en un token compacto Base64 URL-safe para compartir por enlace.
+ */
+export function encodeListToShareLink(list, items) {
+  const compact = {
+    v: 1,
+    t: String(list.title || t('market.title')),
+    c: CURRENCIES[list.currency] ? list.currency : getDefaultCurrency(),
+    b: Number(list.budgetLimit) || 0,
+    i: (items || []).map((it) => [
+      String(it.name || '').trim(),
+      CATEGORY_KEYS.includes(it.category) ? it.category : 'Otros',
+      Number(it.quantity) || 1,
+      UNIT_STEPS[it.unit] ? it.unit : 'un',
+      Number(it.unitPrice) || 0,
+      it.inCart ? 1 : 0
+    ])
+  };
+  return toBase64UrlUtf8(JSON.stringify(compact));
+}
+
+/**
+ * Valida y normaliza un objeto decodificado (formato archivo o formato compacto de enlace).
+ */
+export function parseListImportPayload(data) {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid payload');
+  }
+
+  // Formato archivo (.anotado.json)
+  if (data.type === 'shopping_list' && data.list && Array.isArray(data.items)) {
+    const title = String(data.list.title || '').trim();
+    if (!title) throw new Error('Missing title');
+    return {
+      list: {
+        title,
+        currency: CURRENCIES[data.list.currency] ? data.list.currency : getDefaultCurrency(),
+        budgetLimit: Math.max(0, Number(data.list.budgetLimit) || 0)
+      },
+      items: data.items
+        .filter((it) => it && String(it.name || '').trim())
+        .map((it) => ({
+          name: String(it.name).trim(),
+          category: CATEGORY_KEYS.includes(it.category) ? it.category : 'Otros',
+          quantity: Math.max(0.1, Number(it.quantity) || 1),
+          unit: UNIT_STEPS[it.unit] ? it.unit : 'un',
+          unitPrice: Math.max(0, Number(it.unitPrice) || 0),
+          inCart: Boolean(it.inCart)
+        }))
+    };
+  }
+
+  // Formato compacto de enlace (#import/...)
+  if (data.v === 1 && typeof data.t === 'string' && Array.isArray(data.i)) {
+    const title = data.t.trim();
+    if (!title) throw new Error('Missing title');
+    return {
+      list: {
+        title,
+        currency: CURRENCIES[data.c] ? data.c : getDefaultCurrency(),
+        budgetLimit: Math.max(0, Number(data.b) || 0)
+      },
+      items: data.i
+        .filter((row) => Array.isArray(row) && String(row[0] || '').trim())
+        .map((row) => ({
+          name: String(row[0]).trim(),
+          category: CATEGORY_KEYS.includes(row[1]) ? row[1] : 'Otros',
+          quantity: Math.max(0.1, Number(row[2]) || 1),
+          unit: UNIT_STEPS[row[3]] ? row[3] : 'un',
+          unitPrice: Math.max(0, Number(row[4]) || 0),
+          inCart: Boolean(row[5])
+        }))
+    };
+  }
+
+  throw new Error('Unsupported format');
+}
+
+/**
+ * Decodifica una URL completa, hash #import/..., token Base64 o JSON directo.
+ */
+export function decodeSharePayload(rawInput) {
+  const raw = String(rawInput || '').trim();
+  if (!raw) throw new Error('Empty input');
+
+  if (raw.startsWith('{')) {
+    return parseListImportPayload(JSON.parse(raw));
+  }
+
+  let token = raw;
+  const hashMatch = raw.match(/#import\/([A-Za-z0-9\-_]+)/);
+  if (hashMatch) {
+    token = hashMatch[1];
+  } else {
+    token = token.replace(/^#?import\//, '');
+  }
+
+  const jsonStr = fromBase64UrlUtf8(token);
+  return parseListImportPayload(JSON.parse(jsonStr));
+}
+
+/**
+ * Guarda una lista importada y sus productos en IndexedDB con nuevos IDs locales.
+ */
+export async function importShoppingList(parsed) {
+  const now = Date.now();
+  const newList = {
+    id: createId(),
+    title: parsed.list.title,
+    currency: parsed.list.currency,
+    budgetLimit: parsed.list.budgetLimit,
+    isArchived: false,
+    createdAt: now,
+    updatedAt: now
+  };
+  await putRecord('shopping_lists', newList);
+
+  for (let idx = 0; idx < parsed.items.length; idx++) {
+    const it = parsed.items[idx];
+    await putRecord('products', {
+      id: createId(),
+      listId: newList.id,
+      name: it.name,
+      category: it.category,
+      quantity: it.quantity,
+      unit: it.unit,
+      unitPrice: it.unitPrice,
+      inCart: it.inCart,
+      createdAt: now + idx
+    });
+  }
+
+  return newList;
+}
+
 function openListModal(existingList, onSaved) {
   const isEdit = Boolean(existingList);
   const curr = existingList?.currency || getDefaultCurrency();
@@ -319,6 +498,131 @@ async function deleteShoppingList(listId) {
   await deleteRecord('shopping_lists', listId);
 }
 
+function openExportListModal(list, items) {
+  const html = `
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div class="card" style="background-color: var(--surface-subtle);">
+        <button type="button" id="btn-export-share-link" class="btn btn-primary" style="width: 100%;">
+          🔗 ${escapeHtml(t('market.exportLinkBtn'))}
+        </button>
+        <p style="margin: 8px 0 0; font-size: 0.85rem; color: var(--text-muted);">
+          ${escapeHtml(t('market.exportLinkHint'))}
+        </p>
+      </div>
+
+      <div class="card" style="background-color: var(--surface-subtle);">
+        <button type="button" id="btn-export-download-file" class="btn btn-ghost" style="width: 100%;">
+          📄 ${escapeHtml(t('market.exportFileBtn'))}
+        </button>
+        <p style="margin: 8px 0 0; font-size: 0.85rem; color: var(--text-muted);">
+          ${escapeHtml(t('market.exportFileHint'))}
+        </p>
+      </div>
+    </div>
+  `;
+
+  openModal(`${t('market.exportModalTitle')}: ${list.title}`, html);
+
+  document.getElementById('btn-export-share-link').addEventListener('click', async () => {
+    const token = encodeListToShareLink(list, items);
+    const shareUrl = `${window.location.origin}${window.location.pathname}#import/${token}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: list.title, text: list.title, url: shareUrl });
+        closeModal();
+        return;
+      } catch {
+        // Fallback al portapapeles
+      }
+    }
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(t('market.linkCopiedToast'));
+    }
+    closeModal();
+  });
+
+  document.getElementById('btn-export-download-file').addEventListener('click', () => {
+    const payload = buildListExportPayload(list, items);
+    const slug = String(list.title || 'lista')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-|-$/g, '') || 'lista';
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${slug}.anotado.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast(t('market.fileExportedToast'));
+    closeModal();
+  });
+}
+
+function openImportListModal(onImported) {
+  const html = `
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <form id="import-link-form">
+        <div class="field" style="margin-bottom: 10px;">
+          <label for="import-link-input">${escapeHtml(t('market.importLinkLabel'))}</label>
+          <input id="import-link-input" class="input" type="text"
+            placeholder="${escapeHtml(t('market.importLinkPlaceholder'))}" />
+        </div>
+        <button type="submit" id="btn-import-from-link" class="btn btn-primary" style="width: 100%;">
+          🔗 ${escapeHtml(t('market.importLinkBtn'))}
+        </button>
+      </form>
+
+      <div style="border-top: 1px solid var(--border); padding-top: 14px;">
+        <div class="field" style="margin-bottom: 10px;">
+          <label>${escapeHtml(t('market.importFileLabel'))}</label>
+        </div>
+        <button type="button" id="btn-import-from-file" class="btn btn-ghost" style="width: 100%;">
+          📄 ${escapeHtml(t('market.importFileBtn'))}
+        </button>
+        <input id="import-list-file" type="file" accept=".json,application/json" class="hidden" />
+      </div>
+    </div>
+  `;
+
+  openModal(t('market.importModalTitle'), html);
+
+  document.getElementById('import-link-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = document.getElementById('import-link-input').value.trim();
+    if (!val) return;
+    try {
+      const parsed = decodeSharePayload(val);
+      const created = await importShoppingList(parsed);
+      closeModal();
+      showToast(t('market.importSuccessToast'));
+      onImported(created);
+    } catch {
+      showToast(t('market.importErrorToast'));
+    }
+  });
+
+  const fileInput = document.getElementById('import-list-file');
+  document.getElementById('btn-import-from-file').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = parseListImportPayload(JSON.parse(await file.text()));
+      const created = await importShoppingList(parsed);
+      closeModal();
+      showToast(t('market.importSuccessToast'));
+      onImported(created);
+    } catch {
+      showToast(t('market.importErrorToast'));
+    }
+  });
+}
+
 /**
  * Pantalla intermedia: Administrador de Listas de Compras (CRUD completo de listas).
  */
@@ -349,9 +653,14 @@ async function renderListsManager(container, stickyBar, { navigate }) {
           <h2 style="margin: 0; font-size: 1.4rem; font-weight: 900;">🛒 ${escapeHtml(t('market.myLists'))}</h2>
           <span style="font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(t('market.myListsSubtitle'))}</span>
         </div>
-        <button type="button" id="btn-mgr-new-list" class="btn btn-primary">
-          + ${escapeHtml(t('market.newList'))}
-        </button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" id="btn-mgr-new-list" class="btn btn-primary">
+            + ${escapeHtml(t('market.newList'))}
+          </button>
+          <button type="button" id="btn-mgr-import-list" class="btn btn-ghost">
+            📥 ${escapeHtml(t('market.importBtn'))}
+          </button>
+        </div>
       </div>
 
       ${sorted.length === 0 ? `
@@ -397,7 +706,10 @@ async function renderListsManager(container, stickyBar, { navigate }) {
                   <button type="button" class="btn btn-sm btn-primary" data-open-market-list="${escapeHtml(list.id)}">
                     ${escapeHtml(t('market.openList'))} ➔
                   </button>
-                  <div style="display: flex; gap: 8px;">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-sm btn-ghost" data-export-market-list="${escapeHtml(list.id)}">
+                      📤 ${escapeHtml(t('market.exportBtn'))}
+                    </button>
                     <button type="button" class="btn btn-sm btn-ghost" data-edit-market-list="${escapeHtml(list.id)}">
                       ✏️ ${escapeHtml(t('app.edit'))}
                     </button>
@@ -420,9 +732,23 @@ async function renderListsManager(container, stickyBar, { navigate }) {
     });
   });
 
+  document.getElementById('btn-mgr-import-list').addEventListener('click', () => {
+    openImportListModal((created) => {
+      navigate('market', { listId: created.id });
+    });
+  });
+
   container.querySelectorAll('[data-open-market-list]').forEach((btn) => {
     btn.addEventListener('click', () => {
       navigate('market', { listId: btn.getAttribute('data-open-market-list') });
+    });
+  });
+
+  container.querySelectorAll('[data-export-market-list]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-export-market-list');
+      const list = lists.find((l) => l.id === id);
+      if (list) openExportListModal(list, productsByList.get(list.id) || []);
     });
   });
 

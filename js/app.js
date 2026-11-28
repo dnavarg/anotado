@@ -7,11 +7,11 @@ import { exportAllData, getAll, getById, importAllData, putRecord } from './core
 import { detectBrowserLanguage, getLanguage, setLanguage, t } from './core/i18n.js';
 import { CURRENCIES, getDefaultCurrency, setDefaultCurrency } from './core/currency.js';
 import { applyTheme, getThemeMode, initThemeListener, isDarkActive } from './core/theme.js';
-import { closeModal, escapeHtml, openModal, showToast } from './core/ui.js';
+import { closeModal, confirmModal, escapeHtml, openModal, showToast } from './core/ui.js';
 import { renderHome } from './modules/home.js';
 import { checkDueReminders, renderReminders } from './modules/reminders.js';
 import { renderNotes } from './modules/notes.js';
-import { renderMarket } from './modules/market.js';
+import { decodeSharePayload, importShoppingList, renderMarket } from './modules/market.js';
 
 let currentRoute = 'home';
 let currentParams = {};
@@ -331,11 +331,40 @@ async function renderApp() {
 
 function parseHashRoute() {
   const hash = window.location.hash || '';
-  const match = hash.match(/^#market\/([a-zA-Z0-9-]+)$/);
-  if (match) {
-    return { route: 'market', params: { listId: match[1] } };
+  const marketMatch = hash.match(/^#market\/([a-zA-Z0-9-]+)$/);
+  if (marketMatch) {
+    return { route: 'market', params: { listId: marketMatch[1] } };
+  }
+  const importMatch = hash.match(/^#import\/([A-Za-z0-9\-_]+)$/);
+  if (importMatch) {
+    return { route: 'import_list', params: { token: importMatch[1] } };
   }
   return null;
+}
+
+async function handleImportToken(token) {
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  try {
+    const parsed = decodeSharePayload(token);
+    const confirmed = await confirmModal({
+      title: t('market.importConfirmTitle'),
+      message: `${t('market.importConfirmMsg')} "${parsed.list.title}" (${parsed.items.length} ${t('home.itemsOnList')})`,
+      confirmLabel: t('market.importBtn'),
+      cancelLabel: t('app.cancel'),
+      danger: false
+    });
+    if (confirmed) {
+      const created = await importShoppingList(parsed);
+      showToast(t('market.importSuccessToast'));
+      await navigate('market', { listId: created.id });
+      return;
+    }
+  } catch {
+    showToast(t('market.importErrorToast'));
+  }
+  await navigate('market');
 }
 
 function initStickyBarObserver() {
@@ -407,18 +436,27 @@ async function init() {
   initStickyBarObserver();
 
   const initialHash = parseHashRoute();
-  if (initialHash) {
+  if (initialHash && initialHash.route !== 'import_list') {
     currentRoute = initialHash.route;
     currentParams = initialHash.params;
   }
 
   window.addEventListener('hashchange', () => {
     const next = parseHashRoute();
-    if (next) navigate(next.route, next.params);
+    if (!next) return;
+    if (next.route === 'import_list') {
+      handleImportToken(next.params.token);
+    } else {
+      navigate(next.route, next.params);
+    }
   });
 
   await renderApp();
   registerServiceWorker();
+
+  if (initialHash && initialHash.route === 'import_list') {
+    handleImportToken(initialHash.params.token);
+  }
 
   // Verificación periódica de recordatorios vencidos
   const openLinked = (listId) => navigate('market', { listId });

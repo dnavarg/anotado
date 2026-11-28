@@ -20,8 +20,16 @@
     import { TRANSLATIONS, setLanguage, t } from '../js/core/i18n.js';
     import { formatMoney, parseNumericInput, parseQuantityInput } from '../js/core/currency.js';
     import { applyTheme, getThemeMode } from '../js/core/theme.js';
-    import { setDatabaseName, createId, putRecord, getById, deleteRecord } from '../js/core/db.js';
-    import { calculateListTotals, formatListForShare } from '../js/modules/market.js';
+    import { setDatabaseName, createId, putRecord, getById, getByIndex, deleteRecord, deleteByIndex } from '../js/core/db.js';
+    import {
+      buildListExportPayload,
+      calculateListTotals,
+      decodeSharePayload,
+      encodeListToShareLink,
+      formatListForShare,
+      importShoppingList,
+      parseListImportPayload
+    } from '../js/modules/market.js';
 
     setDatabaseName('AnotadoDB_test');
 
@@ -98,6 +106,26 @@
       const esKeys = collectKeys(TRANSLATIONS.es).sort().join('|');
       const enKeys = collectKeys(TRANSLATIONS.en).sort().join('|');
       assert('i18n parity ES y EN tienen las mismas claves', esKeys === enKeys);
+
+      // Gate 3: Share Link & File Export/Import roundtrip
+      const sampleList = { title: 'Súper Ñuñoa', currency: 'CLP', budgetLimit: 35000 };
+      const sampleItems = [
+        { name: 'Café Molido', category: 'Abarrotes', quantity: 1, unit: 'un', unitPrice: 5490, inCart: false },
+        { name: 'Queso Gauda', category: 'Lácteos', quantity: 1.5, unit: 'kg', unitPrice: 8990, inCart: true }
+      ];
+      const token = encodeListToShareLink(sampleList, sampleItems);
+      const decodedLink = decodeSharePayload(`https://dnavarg.github.io/anotado/#import/${token}`);
+      assert('Share link roundtrip conserva acentos y ítems', decodedLink.list.title === 'Súper Ñuñoa' && decodedLink.items.length === 2 && decodedLink.items[1].quantity === 1.5);
+
+      const filePayload = buildListExportPayload(sampleList, sampleItems);
+      const parsedFile = parseListImportPayload(filePayload);
+      assert('File export/import payload válido', parsedFile.list.currency === 'CLP' && parsedFile.items[0].name === 'Café Molido');
+
+      const importedList = await importShoppingList(decodedLink);
+      const importedProducts = await getByIndex('products', 'listId', importedList.id);
+      assert('importShoppingList persiste lista e ítems en DB aislada', importedProducts.length === 2);
+      await deleteByIndex('products', 'listId', importedList.id);
+      await deleteRecord('shopping_lists', importedList.id);
 
       const passed = results.filter((r) => r.ok).length;
       const root = document.getElementById('results');

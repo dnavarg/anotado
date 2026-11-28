@@ -75,9 +75,16 @@ flowchart TD
 | Etiqueta / ID | Tipo | Función |
 | :--- | :--- | :--- |
 | `#btn-mgr-new-list` | Botón | **"+ Nueva Lista"** (abre `#list-form` y al guardar entra directo a esa lista). |
+| `#btn-mgr-import-list` | Botón | **"📥 Importar"** (abre modal para pegar enlace `#import/...` o subir archivo `.anotado.json`). |
 | `[data-open-market-list]` | Botón | **"Abrir Lista ➔"** en cada tarjeta (entra al Modo Góndola de esa lista). |
+| `[data-export-market-list]` | Botón | **"📤 Enviar / Exportar"** en cada tarjeta (abre modal con enlace directo o descarga `.anotado.json`). |
 | `[data-edit-market-list]` | Botón | **"✏️ Editar"** en cada tarjeta (abre `#list-form` con sus datos). |
 | `[data-del-market-list]` | Botón | **"🗑️ Eliminar"** en cada tarjeta (pide confirmación y borra la lista y sus productos). |
+
+### Modales de Compartir / Importar Listas
+* **Modal Enviar / Exportar (`openExportListModal`):** `#btn-export-share-link` (genera enlace `#import/<token>`), `#btn-export-download-file` (descarga `<nombre>.anotado.json`).
+* **Modal Importar (`openImportListModal`):** `#import-link-form`, `#import-link-input`, `#btn-import-from-link`, `#btn-import-from-file`, `#import-list-file`.
+* **Ruta directa (`js/app.js`):** Abrir `#import/<token>` en otro dispositivo dispara `handleImportToken()` con confirmación antes de guardar la lista en IndexedDB.
 
 ---
 
