@@ -10,7 +10,7 @@
   * Seguimiento separado entre **En el Carro** y **Total Proyectado**.
   * Barra de **Presupuesto** con alerta visual si se supera el límite fijado.
   * Sugerencia automática de últimos precios registrados y exportación a WhatsApp.
-  * **Compartir entre dispositivos:** Envío de listas por enlace directo (`#import/...`) o archivo `.anotado.json` e importación directa desde **Mis Listas**.
+  * **Compartir entre dispositivos:** Código QR 100% offline, envío de listas por enlace comprimido (`deflate-raw`, `#import/z_...`) o archivo `.anotado.json` e importación directa desde **Mis Listas**.
 * **⏰ Recordatorios Independientes con Enlace Inteligente:**
   * Al crear un recordatorio de categoría *Compras / Supermercado*, ofrece crear y enlazar automáticamente una lista de compras con su presupuesto estimado.
 * **📝 Notas Rápidas y Checklists:**

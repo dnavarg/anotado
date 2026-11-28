@@ -188,7 +188,7 @@ erDiagram
       * Si supera el límite: Alerta en rojo con texto claro (ej. *"Atención: Has superado el presupuesto por $ 3.200"*).
 * **Cierre de Compra y Transferencia entre Dispositivos:**
   * Al terminar, permite archivar la lista y guardar los precios unitarios en el catálogo histórico.
-  * Desde **"Mis Listas de Compras"**, cada lista se puede **Enviar por enlace (`#import/<token>`)** o **Exportar como archivo (`.anotado.json`)**, e **Importar** en cualquier otro dispositivo sin servidor.
+  * Desde **"Mis Listas de Compras"**, cada lista se puede **Escanear por QR offline**, **Enviar por enlace comprimido (`deflate-raw`, `#import/z_...`)** o **Exportar como archivo (`.anotado.json`)**, e **Importar** en cualquier otro dispositivo sin servidor.
 
 ---
 

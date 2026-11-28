@@ -21,6 +21,7 @@
     import { formatMoney, parseNumericInput, parseQuantityInput } from '../js/core/currency.js';
     import { applyTheme, getThemeMode } from '../js/core/theme.js';
     import { setDatabaseName, createId, putRecord, getById, getByIndex, deleteRecord, deleteByIndex } from '../js/core/db.js';
+    import { generateQrSvg } from '../js/core/qr.js';
     import {
       buildListExportPayload,
       calculateListTotals,
@@ -107,15 +108,20 @@
       const enKeys = collectKeys(TRANSLATIONS.en).sort().join('|');
       assert('i18n parity ES y EN tienen las mismas claves', esKeys === enKeys);
 
-      // Gate 3: Share Link & File Export/Import roundtrip
+      // Gate 3: Share Link (deflate-raw) + QR SVG + File Export/Import roundtrip
       const sampleList = { title: 'Súper Ñuñoa', currency: 'CLP', budgetLimit: 35000 };
       const sampleItems = [
         { name: 'Café Molido', category: 'Abarrotes', quantity: 1, unit: 'un', unitPrice: 5490, inCart: false },
         { name: 'Queso Gauda', category: 'Lácteos', quantity: 1.5, unit: 'kg', unitPrice: 8990, inCart: true }
       ];
-      const token = encodeListToShareLink(sampleList, sampleItems);
-      const decodedLink = decodeSharePayload(`https://dnavarg.github.io/anotado/#import/${token}`);
+      const token = await encodeListToShareLink(sampleList, sampleItems);
+      assert('Share link usa compresión deflate-raw (z_)', token.startsWith('z_'));
+      const shareUrl = `https://dnavarg.github.io/anotado/#import/${token}`;
+      const decodedLink = await decodeSharePayload(shareUrl);
       assert('Share link roundtrip conserva acentos y ítems', decodedLink.list.title === 'Súper Ñuñoa' && decodedLink.items.length === 2 && decodedLink.items[1].quantity === 1.5);
+
+      const qrSvg = generateQrSvg(shareUrl);
+      assert('QR offline genera SVG válido', typeof qrSvg === 'string' && qrSvg.startsWith('<svg') && qrSvg.includes('<path'));
 
       const filePayload = buildListExportPayload(sampleList, sampleItems);
       const parsedFile = parseListImportPayload(filePayload);

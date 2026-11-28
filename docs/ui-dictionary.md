@@ -16,6 +16,7 @@ flowchart TD
         CURR["currency.js (CLP, USD, EUR, ARS, MXN)"]
         THEME["theme.js (Sistema / Claro / Oscuro)"]
         UI["ui.js (Modales, Confirmaciones, Toasts)"]
+        QR["qr.js (Generador QR SVG offline)"]
     end
 
     subgraph Modules["Capa Módulos (Pantallas)"]
@@ -82,7 +83,7 @@ flowchart TD
 | `[data-del-market-list]` | Botón | **"🗑️ Eliminar"** en cada tarjeta (pide confirmación y borra la lista y sus productos). |
 
 ### Modales de Compartir / Importar Listas
-* **Modal Enviar / Exportar (`openExportListModal`):** `#btn-export-share-link` (genera enlace `#import/<token>`), `#btn-export-download-file` (descarga `<nombre>.anotado.json`).
+* **Modal Enviar / Exportar (`openExportListModal`):** Código QR SVG offline (`qr.js`), `#btn-export-share-link` (genera enlace comprimido `deflate-raw` `#import/z_<token>`), `#btn-export-download-file` (descarga `<nombre>.anotado.json`).
 * **Modal Importar (`openImportListModal`):** `#import-link-form`, `#import-link-input`, `#btn-import-from-link`, `#btn-import-from-file`, `#import-list-file`.
 * **Ruta directa (`js/app.js`):** Abrir `#import/<token>` en otro dispositivo dispara `handleImportToken()` con confirmación antes de guardar la lista en IndexedDB.
 

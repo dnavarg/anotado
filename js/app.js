@@ -347,7 +347,7 @@ async function handleImportToken(token) {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }
   try {
-    const parsed = decodeSharePayload(token);
+    const parsed = await decodeSharePayload(token);
     const confirmed = await confirmModal({
       title: t('market.importConfirmTitle'),
       message: `${t('market.importConfirmMsg')} "${parsed.list.title}" (${parsed.items.length} ${t('home.itemsOnList')})`,

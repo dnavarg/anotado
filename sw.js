@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anotado-v1.6.0';
+const CACHE_NAME = 'anotado-v1.7.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -16,6 +16,7 @@ const ASSETS_TO_CACHE = [
   './js/core/currency.js',
   './js/core/theme.js',
   './js/core/ui.js',
+  './js/core/qr.js',
   './js/modules/home.js',
   './js/modules/reminders.js',
   './js/modules/notes.js',

@@ -7,8 +7,10 @@ import { createId, deleteByIndex, deleteRecord, getAll, getById, getByIndex, put
 import { t } from '../core/i18n.js';
 import { CURRENCIES, formatMoney, getDefaultCurrency, parseNumericInput, parseQuantityInput } from '../core/currency.js';
 import { closeModal, confirmModal, escapeHtml, openModal, showToast } from '../core/ui.js';
+import { generateQrSvg } from '../core/qr.js';
 
 const CATEGORY_KEYS = ['Abarrotes', 'Lácteos', 'Carnes', 'Verduras', 'Panadería', 'Limpieza', 'Perfumería', 'Otros'];
+const UNIT_KEYS = ['un', 'kg', 'g', 'L'];
 const UNIT_STEPS = {
   un: { step: 1, min: 1 },
   kg: { step: 0.5, min: 0.5 },
@@ -109,8 +111,7 @@ export function buildListExportPayload(list, items) {
   };
 }
 
-function toBase64UrlUtf8(text) {
-  const bytes = new TextEncoder().encode(text);
+function bytesToBase64Url(bytes) {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -118,39 +119,67 @@ function toBase64UrlUtf8(text) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function fromBase64UrlUtf8(token) {
+function base64UrlToBytes(token) {
   const padded = token.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((token.length + 3) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  return new TextDecoder().decode(bytes);
+  return bytes;
+}
+
+async function compressDeflateRaw(bytes) {
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+async function decompressDeflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const buf = await new Response(ds.readable).arrayBuffer();
+  return new Uint8Array(buf);
 }
 
 /**
- * Codifica una lista y sus productos en un token compacto Base64 URL-safe para compartir por enlace.
+ * Codifica una lista y sus productos usando índices numéricos + compresión deflate-raw (prefijo z_).
  */
-export function encodeListToShareLink(list, items) {
+export async function encodeListToShareLink(list, items) {
   const compact = {
-    v: 1,
+    v: 2,
     t: String(list.title || t('market.title')),
     c: CURRENCIES[list.currency] ? list.currency : getDefaultCurrency(),
     b: Number(list.budgetLimit) || 0,
     i: (items || []).map((it) => [
       String(it.name || '').trim(),
-      CATEGORY_KEYS.includes(it.category) ? it.category : 'Otros',
+      Math.max(0, CATEGORY_KEYS.indexOf(it.category)),
       Number(it.quantity) || 1,
-      UNIT_STEPS[it.unit] ? it.unit : 'un',
+      Math.max(0, UNIT_KEYS.indexOf(it.unit || 'un')),
       Number(it.unitPrice) || 0,
       it.inCart ? 1 : 0
     ])
   };
-  return toBase64UrlUtf8(JSON.stringify(compact));
+
+  const rawBytes = new TextEncoder().encode(JSON.stringify(compact));
+  if (typeof CompressionStream !== 'undefined') {
+    try {
+      const compressed = await compressDeflateRaw(rawBytes);
+      return `z_${bytesToBase64Url(compressed)}`;
+    } catch {
+      // Fallback sin compresión si el navegador falla
+    }
+  }
+  return `p_${bytesToBase64Url(rawBytes)}`;
 }
 
 /**
- * Valida y normaliza un objeto decodificado (formato archivo o formato compacto de enlace).
+ * Valida y normaliza un objeto decodificado (formato archivo, enlace v2 indexado o enlace v1).
  */
 export function parseListImportPayload(data) {
   if (!data || typeof data !== 'object') {
@@ -180,8 +209,8 @@ export function parseListImportPayload(data) {
     };
   }
 
-  // Formato compacto de enlace (#import/...)
-  if (data.v === 1 && typeof data.t === 'string' && Array.isArray(data.i)) {
+  // Formato compacto v2 (índices numéricos) o v1 (texto)
+  if ((data.v === 2 || data.v === 1) && typeof data.t === 'string' && Array.isArray(data.i)) {
     const title = data.t.trim();
     if (!title) throw new Error('Missing title');
     return {
@@ -192,14 +221,22 @@ export function parseListImportPayload(data) {
       },
       items: data.i
         .filter((row) => Array.isArray(row) && String(row[0] || '').trim())
-        .map((row) => ({
-          name: String(row[0]).trim(),
-          category: CATEGORY_KEYS.includes(row[1]) ? row[1] : 'Otros',
-          quantity: Math.max(0.1, Number(row[2]) || 1),
-          unit: UNIT_STEPS[row[3]] ? row[3] : 'un',
-          unitPrice: Math.max(0, Number(row[4]) || 0),
-          inCart: Boolean(row[5])
-        }))
+        .map((row) => {
+          const cat = typeof row[1] === 'number'
+            ? (CATEGORY_KEYS[row[1]] || 'Otros')
+            : (CATEGORY_KEYS.includes(row[1]) ? row[1] : 'Otros');
+          const unit = typeof row[3] === 'number'
+            ? (UNIT_KEYS[row[3]] || 'un')
+            : (UNIT_STEPS[row[3]] ? row[3] : 'un');
+          return {
+            name: String(row[0]).trim(),
+            category: cat,
+            quantity: Math.max(0.1, Number(row[2]) || 1),
+            unit,
+            unitPrice: Math.max(0, Number(row[4]) || 0),
+            inCart: Boolean(row[5])
+          };
+        })
     };
   }
 
@@ -207,9 +244,9 @@ export function parseListImportPayload(data) {
 }
 
 /**
- * Decodifica una URL completa, hash #import/..., token Base64 o JSON directo.
+ * Decodifica una URL completa, hash #import/..., token comprimido (z_), plano (p_/v1) o JSON directo.
  */
-export function decodeSharePayload(rawInput) {
+export async function decodeSharePayload(rawInput) {
   const raw = String(rawInput || '').trim();
   if (!raw) throw new Error('Empty input');
 
@@ -225,7 +262,16 @@ export function decodeSharePayload(rawInput) {
     token = token.replace(/^#?import\//, '');
   }
 
-  const jsonStr = fromBase64UrlUtf8(token);
+  let jsonBytes;
+  if (token.startsWith('z_')) {
+    jsonBytes = await decompressDeflateRaw(base64UrlToBytes(token.slice(2)));
+  } else if (token.startsWith('p_')) {
+    jsonBytes = base64UrlToBytes(token.slice(2));
+  } else {
+    jsonBytes = base64UrlToBytes(token);
+  }
+
+  const jsonStr = new TextDecoder().decode(jsonBytes);
   return parseListImportPayload(JSON.parse(jsonStr));
 }
 
@@ -498,9 +544,25 @@ async function deleteShoppingList(listId) {
   await deleteRecord('shopping_lists', listId);
 }
 
-function openExportListModal(list, items) {
+async function openExportListModal(list, items) {
+  const token = await encodeListToShareLink(list, items);
+  const shareUrl = `${window.location.origin}${window.location.pathname}#import/${token}`;
+  const qrSvg = generateQrSvg(shareUrl);
+
   const html = `
     <div style="display: flex; flex-direction: column; gap: 12px;">
+      ${qrSvg ? `
+        <div class="card" style="background-color: var(--surface-subtle); text-align: center;">
+          <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 10px;">
+            📷 ${escapeHtml(t('market.exportQrTitle'))}
+          </div>
+          ${qrSvg}
+          <p style="margin: 10px 0 0; font-size: 0.85rem; color: var(--text-muted);">
+            ${escapeHtml(t('market.exportQrHint'))}
+          </p>
+        </div>
+      ` : ''}
+
       <div class="card" style="background-color: var(--surface-subtle);">
         <button type="button" id="btn-export-share-link" class="btn btn-primary" style="width: 100%;">
           🔗 ${escapeHtml(t('market.exportLinkBtn'))}
@@ -524,9 +586,6 @@ function openExportListModal(list, items) {
   openModal(`${t('market.exportModalTitle')}: ${list.title}`, html);
 
   document.getElementById('btn-export-share-link').addEventListener('click', async () => {
-    const token = encodeListToShareLink(list, items);
-    const shareUrl = `${window.location.origin}${window.location.pathname}#import/${token}`;
-
     if (navigator.share) {
       try {
         await navigator.share({ title: list.title, text: list.title, url: shareUrl });
@@ -596,7 +655,7 @@ function openImportListModal(onImported) {
     const val = document.getElementById('import-link-input').value.trim();
     if (!val) return;
     try {
-      const parsed = decodeSharePayload(val);
+      const parsed = await decodeSharePayload(val);
       const created = await importShoppingList(parsed);
       closeModal();
       showToast(t('market.importSuccessToast'));
